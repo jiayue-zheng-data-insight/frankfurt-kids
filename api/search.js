@@ -7,40 +7,14 @@ export default async function handler(req, res) {
 
   try {
     const today = new Date();
-    const oneMonthLater = new Date(today);
-    oneMonthLater.setMonth(oneMonthLater.getMonth() + 2);
-    const dateRange = `${today.toISOString().split('T')[0]} to ${oneMonthLater.toISOString().split('T')[0]}`;
+    const twoMonths = new Date(today);
+    twoMonths.setMonth(twoMonths.getMonth() + 2);
+    const range = `${today.toISOString().split('T')[0]} to ${twoMonths.toISOString().split('T')[0]}`;
 
-    const prompt = `Generate a list of 8 realistic children's activities and family events in Frankfurt am Main, Germany for the date range: ${dateRange}.
+    const prompt = `List 6 children's activities in Frankfurt am Main for ${range}. Use real venues: Frankfurt Zoo, Senckenberg Museum, Städel Museum, Palmengarten, Römerberg, Kindermuseum Frankfurt.
 
-These should be based on real, recurring or typical events that happen in Frankfurt — things like zoo visits, museum workshops, theatre shows, outdoor festivals, cinema events, etc.
-
-Return ONLY a JSON array with this structure:
-[
-  {
-    "id": 1,
-    "emoji": "🎪",
-    "name": "Activity name in German or English",
-    "nameZh": "Activity name in Chinese",
-    "description": "2-3 sentences about this activity in Chinese",
-    "descriptionEn": "2-3 sentences in English",
-    "location": "Real Frankfurt address",
-    "dates": "Date range in German format",
-    "datesEn": "Date range in English",
-    "time": "Opening hours",
-    "price": "Ticket prices in German (Erwachsene/Kinder)",
-    "priceEn": "Ticket prices in English",
-    "booking": "website domain only e.g. zoo-frankfurt.de",
-    "bookingUrl": "https://full-url",
-    "needsBooking": true or false,
-    "tags": ["tag1", "tag2"],
-    "tagsZh": ["标签1", "标签2"],
-    "ageRange": "e.g. 3+"
-  }
-]
-
-Use real Frankfurt venues: Frankfurt Zoo, Senckenberg Museum, Städel Museum, Palmengarten, Römerberg, Mal seh'n Kino, Frankfurter Kunstverein, Kindermuseum Frankfurt, Theater am Turm, etc.
-Return ONLY the JSON array, no other text.`;
+Return ONLY this JSON array, no other text:
+[{"id":1,"emoji":"🦁","name":"Event name","nameZh":"活动中文名","description":"一两句中文介绍。","descriptionEn":"One or two sentences in English.","location":"Real Frankfurt address","dates":"Datum DE","datesEn":"Date EN","time":"10:00-17:00","price":"Erw. €12 / Kinder €6","priceEn":"Adults €12 / Children €6","booking":"zoo-frankfurt.de","bookingUrl":"https://www.zoo-frankfurt.de","needsBooking":false,"tags":["Animals","Outdoor"],"tagsZh":["动物","户外"],"ageRange":"3+"}]`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -50,8 +24,8 @@ Return ONLY the JSON array, no other text.`;
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-5',
-        max_tokens: 2048,
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2500,
         messages: [{ role: 'user', content: prompt }]
       })
     });

@@ -1,7 +1,10 @@
 {
   "functions": {
-    "api/*.js": {
+    "api/scan.js": {
       "maxDuration": 30
+    },
+    "api/search.js": {
+      "maxDuration": 60
     }
   }
 }
