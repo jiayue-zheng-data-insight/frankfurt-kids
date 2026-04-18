@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="法兰克福亲子">
+<meta name="theme-color" content="#ffffff">
+<title>法兰克福亲子活动</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;color:#1a1a1a;font-size:15px;max-width:480px;margin:0 auto;min-height:100vh}
+.hdr{background:#fff;border-bottom:1px solid #eee;padding:12px 16px 10px;position:sticky;top:0;z-index:20}
+.hdr-row{display:flex;align-items:center;justify-content:space-between}
+.hdr-title{font-size:17px;font-weight:600}
+.hdr-sub{font-size:11px;color:#888;margin-top:2px}
+.lang-toggle{display:flex;border:1px solid #ddd;border-radius:8px;overflow:hidden}
+.lang-btn{padding:4px 10px;font-size:11px;font-weight:500;cursor:pointer;background:transparent;border:none;color:#888;transition:all 0.15s}
+.lang-btn.on{background:#185FA5;color:#fff}
+.tabs{display:flex;background:#fff;border-bottom:1px solid #eee;position:sticky;top:57px;z-index:19}
+.tab{flex:1;padding:10px 2px 8px;text-align:center;font-size:11px;color:#888;cursor:pointer;border-bottom:2px solid transparent;transition:all 0.15s}
+.tab.on{color:#185FA5;border-bottom-color:#185FA5;font-weight:600}
+.tab-ic{font-size:18px;display:block;margin-bottom:2px}
+.pg{display:none;padding:16px;min-height:calc(100vh - 120px)}
+.pg.on{display:block}
+.card{background:#fff;border:1px solid #eee;border-radius:14px;padding:14px;margin-bottom:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 16px;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid #ddd;background:#fff;color:#1a1a1a;transition:all 0.15s;-webkit-appearance:none}
+.btn:active{opacity:0.75;transform:scale(0.98)}
+.btn-p{background:#185FA5;color:#fff;border-color:#185FA5}
+.btn-sm{padding:6px 10px;font-size:12px}
+.btn-w{width:100%}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:600}
+.b-blue{background:#E6F1FB;color:#0C447C}
+.b-green{background:#E8F5E9;color:#2E7D32}
+.b-red{background:#FFEBEE;color:#C62828}
+.b-amber{background:#FFF8E1;color:#E65100}
+.b-gray{background:#F5F5F5;color:#555}
+.flabel{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;margin-top:10px}
+.flabel:first-child{margin-top:0}
+.fval{font-size:13px;background:#f8f8f8;padding:8px 10px;border-radius:8px;border:1px solid #eee;color:#1a1a1a;margin-bottom:2px;line-height:1.5}
+.notice{padding:10px 12px;border-radius:10px;font-size:12px;margin-bottom:12px;line-height:1.5;display:flex;gap:8px;align-items:flex-start}
+.n-info{background:#E3F2FD;color:#0D47A1}
+.n-warn{background:#FFF3E0;color:#BF360C}
+.n-ok{background:#E8F5E9;color:#1B5E20}
+.n-red{background:#FFEBEE;color:#B71C1C}
+/* STEPS */
+.steps{display:flex;align-items:center;background:#fff;border:1px solid #eee;border-radius:12px;padding:12px 8px;margin-bottom:16px}
+.step-item{display:flex;flex-direction:column;align-items:center;gap:5px;flex:1}
+.step-num{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600}
+.sn-done{background:#185FA5;color:#fff}
+.sn-act{background:#E6F1FB;color:#185FA5;border:2px solid #185FA5}
+.sn-todo{background:#f0f0f0;color:#bbb;border:1px solid #ddd}
+.step-label{font-size:10px;color:#888;text-align:center;line-height:1.3}
+.step-line{flex:1;height:1px;background:#eee;margin-bottom:16px}
+/* UPLOAD */
+.upload-z{border:2px dashed #ddd;border-radius:14px;padding:32px 16px;text-align:center;cursor:pointer;background:#fafafa;display:block;transition:all 0.2s}
+.upload-z:active{border-color:#185FA5;background:#E6F1FB}
+input[type=file]{display:none}
+.poster-preview{width:100%;border-radius:12px;background:#FFF8E1;border:1px solid #eee;padding:16px;text-align:center;margin-bottom:12px;min-height:90px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px}
+.spin{width:28px;height:28px;border:3px solid #eee;border-top-color:#185FA5;border-radius:50%;animation:sp 0.8s linear infinite;margin:0 auto 10px}
+@keyframes sp{to{transform:rotate(360deg)}}
+/* ACTIVITY CARDS */
+.act-wrap{margin-bottom:10px}
+.act-card{background:#fff;border:1px solid #eee;border-radius:14px;overflow:hidden;transition:border-color 0.15s}
+.act-card.open{border-color:#378ADD;border-width:1.5px}
+.act-card.nb{border-left:4px solid #E53935}
+.act-card.nb.open{border-color:#378ADD;border-left-color:#E53935;border-left-width:4px}
+.act-summary{padding:13px;cursor:pointer;display:flex;align-items:flex-start;gap:10px}
+.act-ic{font-size:24px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:#f5f5f5;border-radius:10px;flex-shrink:0}
+.act-info{flex:1;min-width:0}
+.act-name{font-size:13px;font-weight:600;margin-bottom:3px;line-height:1.3}
+.act-meta{font-size:11px;color:#888;margin-bottom:2px}
+.act-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+.act-right{display:flex;flex-direction:column;align-items:flex-end;gap:7px;flex-shrink:0}
+.chk{width:24px;height:24px;border-radius:50%;border:2px solid #ddd;display:flex;align-items:center;justify-content:center;font-size:13px;transition:all 0.15s;cursor:pointer;flex-shrink:0}
+.chk.on{background:#185FA5;border-color:#185FA5;color:#fff}
+.chevron{font-size:11px;color:#bbb;transition:transform 0.2s;line-height:1}
+.chevron.open{transform:rotate(180deg)}
+/* EXPANDED DETAIL */
+.act-detail{display:none;border-top:1px solid #eee;padding:14px;background:#fafafa}
+.act-detail.open{display:block}
+.detail-desc{font-size:12px;color:#555;line-height:1.7;margin-bottom:12px;padding:10px 12px;background:#fff;border-radius:9px;border:1px solid #eee}
+.detail-row{display:flex;gap:9px;margin-bottom:8px;align-items:flex-start}
+.detail-icon{font-size:13px;flex-shrink:0;width:18px;margin-top:1px}
+.detail-label{font-size:10px;color:#aaa;margin-bottom:1px}
+.detail-text{font-size:12px;color:#1a1a1a;line-height:1.5}
+.website-link{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border-radius:10px;border:1px solid #eee;margin:10px 0;cursor:pointer;text-decoration:none;color:#1a1a1a}
+.website-link:active{background:#E6F1FB}
+.website-link-ic{width:30px;height:30px;background:#E6F1FB;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.website-link-name{font-size:12px;font-weight:600;color:#185FA5}
+.website-link-url{font-size:10px;color:#aaa}
+.detail-actions{display:flex;gap:8px;margin-top:12px}
+/* PLAN + CAL */
+.ev-item{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:10px;margin-bottom:8px;cursor:pointer}
+.ev-item.bi{background:#E3F2FD}
+.ev-item.ri{background:#FFEBEE}
+.ev-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.ev-dot.b{background:#185FA5}
+.ev-dot.r{background:#E53935}
+.ev-dets{flex:1;min-width:0}
+.ev-name{font-size:13px;font-weight:500}
+.ev-date{font-size:11px;color:#888;margin-top:1px}
+.cal-wrap{background:#fff;border:1px solid #eee;border-radius:14px;padding:12px;margin-bottom:14px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:4px}
+.cal-hd{text-align:center;font-size:10px;color:#aaa;padding:4px 0;font-weight:600}
+.cal-d{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:7px;font-size:12px;position:relative;cursor:pointer;font-weight:400}
+.cal-d.om{color:#ddd}
+.cal-d.td{background:#E6F1FB;color:#185FA5;font-weight:700}
+.cal-d.we{background:#f8f8f8}
+.cal-d.hev{background:#E3F2FD;color:#0D47A1;font-weight:600}
+.cal-d.hbk{background:#FFEBEE;color:#C62828;font-weight:600}
+.dot{width:4px;height:4px;border-radius:50%;position:absolute;bottom:3px}
+.dot-b{background:#185FA5}
+.dot-r{background:#E53935}
+.cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.cal-mo{font-size:15px;font-weight:600}
+.sec-title{font-size:11px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px}
+.divider{height:1px;background:#eee;margin:14px 0}
+.empty{text-align:center;padding:40px 16px;color:#aaa;font-size:13px}
+.pref-row{display:flex;gap:7px;margin-top:8px}
+.loading-full{text-align:center;padding:40px 16px}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-row">
+    <div>
+      <div class="hdr-title" id="ht">🎪 法兰克福亲子活动</div>
+      <div class="hdr-sub" id="hs">发现精彩儿童活动，轻松安排家庭周末</div>
+    </div>
+    <div class="lang-toggle">
+      <button class="lang-btn on" onclick="setLang('zh')">中文</button>
+      <button class="lang-btn" onclick="setLang('en')">EN</button>
+    </div>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab on" onclick="goTab('scan')" id="tab-scan"><span class="tab-ic">📷</span><span id="tl-scan">扫描</span></div>
+  <div class="tab" onclick="goTab('disc')" id="tab-disc"><span class="tab-ic">🔍</span><span id="tl-disc">发现</span></div>
+  <div class="tab" onclick="goTab('plan')" id="tab-plan"><span class="tab-ic">📋</span><span id="tl-plan">计划</span></div>
+  <div class="tab" onclick="goTab('cal')" id="tab-cal"><span class="tab-ic">📅</span><span id="tl-cal">日历</span></div>
+</div>
+
+<!-- SCAN -->
+<div class="pg on" id="pg-scan">
+  <div class="steps">
+    <div class="step-item"><div class="step-num sn-act" id="s1">1</div><div class="step-label" id="sl1">上传图片</div></div>
+    <div class="step-line"></div>
+    <div class="step-item"><div class="step-num sn-todo" id="s2">2</div><div class="step-label" id="sl2">AI 识别</div></div>
+    <div class="step-line"></div>
+    <div class="step-item"><div class="step-num sn-todo" id="s3">3</div><div class="step-label" id="sl3">网络补全</div></div>
+    <div class="step-line"></div>
+    <div class="step-item"><div class="step-num sn-todo" id="s4">4</div><div class="step-label" id="sl4">加入列表</div></div>
+  </div>
+  <div id="up-sec">
+    <label class="upload-z" for="fileIn">
+      <div style="font-size:36px;margin-bottom:10px">📸</div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px" id="up-main">点击上传活动海报</div>
+      <div style="font-size:12px;color:#aaa" id="up-sub">支持 JPG / PNG 图片</div>
+    </label>
+    <input type="file" id="fileIn" accept="image/*" onchange="onFile(event)">
+  </div>
+  <div id="prev-sec" style="display:none">
+    <img id="previewImg" style="width:100%;border-radius:12px;margin-bottom:12px;display:none;max-height:200px;object-fit:contain;background:#f5f5f5">
+    <div class="poster-preview" id="posterPlaceholder">
+      <div style="font-size:28px">🎪</div>
+      <div style="font-size:13px;font-weight:600;color:#5D4037">Circus Delmonde</div>
+      <div style="font-size:11px;color:#8D6E63">F-Nied · Frankfurt</div>
+    </div>
+    <div id="scan-load" style="display:none;text-align:center;padding:24px 0">
+      <div class="spin"></div>
+      <div style="font-size:13px;color:#888" id="load-t1">AI 正在识别海报内容...</div>
+      <div style="font-size:11px;color:#aaa;margin-top:4px" id="load-t2">联网补全缺失信息中</div>
+    </div>
+    <div id="scan-res" style="display:none"></div>
+  </div>
+</div>
+
+<!-- DISCOVER -->
+<div class="pg" id="pg-disc">
+  <div id="disc-loading" class="loading-full" style="display:none">
+    <div class="spin"></div>
+    <div style="font-size:13px;color:#888" id="disc-load-txt">正在搜索法兰克福近期儿童活动...</div>
+  </div>
+  <div id="disc-content" style="display:none">
+    <div class="notice n-info" id="disc-notice"></div>
+    <div class="sec-title" id="disc-title">全部活动（点击展开详情）</div>
+    <div id="act-list"></div>
+    <button class="btn btn-w" style="margin-top:4px" onclick="goTab('plan')" id="go-plan-btn">📋 查看已选计划 ↗</button>
+  </div>
+  <div id="disc-empty" style="display:none">
+    <div class="empty">
+      <div style="font-size:40px;margin-bottom:12px">🔍</div>
+      <div id="disc-err-txt">搜索失败，请重试</div>
+      <button class="btn btn-sm" style="margin-top:12px" onclick="loadActivities()">重试</button>
+    </div>
+  </div>
+</div>
+
+<!-- PLAN -->
+<div class="pg" id="pg-plan">
+  <div id="plan-empty" class="empty">
+    <div style="font-size:40px;margin-bottom:12px">🗓</div>
+    <div id="pe-t1">还没有选择活动</div>
+    <div style="font-size:12px;margin-top:6px" id="pe-t2">去"活动发现"选择感兴趣的活动</div>
+    <button class="btn btn-sm" style="margin-top:12px" onclick="goTab('disc')" id="pe-btn">去选活动 ↗</button>
+  </div>
+  <div id="plan-body" style="display:none">
+    <div class="notice n-info" id="plan-notice">💡 已按周末自动安排，点击可展开详情</div>
+    <div class="sec-title" id="plan-title">已安排活动</div>
+    <div id="planned"></div>
+    <div class="divider"></div>
+    <div class="sec-title" id="pref-title">周末偏好设置</div>
+    <div class="card" style="padding:14px">
+      <div style="font-size:12px;color:#888;margin-bottom:8px" id="pref-sub">每个周末安排哪天？</div>
+      <div class="pref-row">
+        <button class="btn btn-sm" id="pr-sat" onclick="setPref('sat')" style="flex:1">仅周六</button>
+        <button class="btn btn-sm btn-p" id="pr-sun" onclick="setPref('sun')" style="flex:1">仅周日</button>
+        <button class="btn btn-sm" id="pr-both" onclick="setPref('both')" style="flex:1">两天都行</button>
+      </div>
+    </div>
+    <div class="sec-title" style="margin-top:14px" id="sync-title">同步到日历</div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-p" style="flex:1" onclick="exportGoogleCalendar()" id="sync-g-btn">📅 Google 日历</button>
+      <button class="btn btn-p" style="flex:1" onclick="exportAppleCalendar()" id="sync-a-btn">🍎 Apple 日历</button>
+    </div>
+  </div>
+</div>
+
+<!-- CALENDAR -->
+<div class="pg" id="pg-cal">
+  <div class="cal-nav">
+    <button class="btn btn-sm" onclick="prevMo()">‹</button>
+    <div class="cal-mo" id="cal-mo-lbl"></div>
+    <button class="btn btn-sm" onclick="nextMo()">›</button>
+  </div>
+  <div class="cal-wrap">
+    <div class="cal-grid" id="cal-hdrs"></div>
+    <div class="cal-grid" id="cal-days"></div>
+  </div>
+  <div class="sec-title" id="cal-ev-title">本月活动</div>
+  <div id="cal-ev-list"></div>
+  <div class="notice n-warn" style="margin-top:8px" id="cal-legend">🔴 红色 = 需提前订票 &nbsp; 🔵 蓝色 = 无需预订</div>
+</div>
+
+<script>
+// ── STATE ──
+let lang = 'zh';
+let activities = [];
+let sel = new Set();
+let scheduled = [];
+let pref = 'sun';
+let calMo = new Date();
+let openId = null;
+let activitiesLoaded = false;
+
+// ── TRANSLATIONS ──
+const T = {
+  zh: {
+    ht:'🎪 法兰克福亲子活动', hs:'发现精彩儿童活动，轻松安排家庭周末',
+    tl:['扫描','发现','计划','日历'],
+    sl:['上传图片','AI 识别','网络补全','加入列表'],
+    'up-main':'点击上传活动海报', 'up-sub':'支持 JPG / PNG 图片',
+    'load-t1':'AI 正在识别海报内容...', 'load-t2':'联网补全缺失信息中',
+    'disc-load-txt':'正在搜索法兰克福近期儿童活动...',
+    'disc-title':'全部活动（点击展开详情）',
+    'go-plan-btn':'📋 查看已选计划 ↗',
+    'pe-t1':'还没有选择活动', 'pe-t2':'去"活动发现"选择感兴趣的活动', 'pe-btn':'去选活动 ↗',
+    'plan-notice':'💡 已按周末自动安排，点击活动可展开详情',
+    'plan-title':'已安排活动', 'pref-title':'周末偏好设置', 'pref-sub':'每个周末安排哪天？',
+    'pr-sat':'仅周六', 'pr-sun':'仅周日', 'pr-both':'两天都行',
+    'sync-title':'同步到日历', 'sync-g-btn':'📅 Google 日历', 'sync-a-btn':'🍎 Apple 日历',
+    'cal-ev-title':'本月活动', 'cal-legend':'🔴 红色 = 需提前订票   🔵 蓝色 = 无需预订',
+    days:['一','二','三','四','五','六','日'],
+    needsBooking:'需提前订票', noBooking:'无需预订', fromScan:'📷 扫描',
+    addPlan:'➕ 加入计划', removeBtn:'✓ 已选 · 取消', collapseBtn:'收起',
+    bookWarn:'⚠ 此活动需提前订票，请尽早安排', bookOk:'✓ 无需预订，可直接前往',
+    website:'官方网站', visitSite:'访问官网', descLabel:'活动介绍',
+    scanSuccess:'✓ 识别成功！信息已自动补全',
+    scanAddBtn:'➕ 加入活动列表', scanAdded:'✅ 已加入活动列表！',
+    goDiscover:'去活动发现 ↗',
+    bookNeeded:'需订票', bookFree:'无需预订',
+  },
+  en: {
+    ht:'🎪 Frankfurt Family Activities', hs:'Discover kids events · Plan your weekends',
+    tl:['Scan','Discover','Plan','Calendar'],
+    sl:['Upload','AI Scan','Web Fill','Add'],
+    'up-main':'Upload an activity poster', 'up-sub':'JPG / PNG supported',
+    'load-t1':'AI is reading the poster...', 'load-t2':'Searching web for missing details',
+    'disc-load-txt':'Searching Frankfurt children\'s events...',
+    'disc-title':'All activities (tap to expand)',
+    'go-plan-btn':'📋 View my plan ↗',
+    'pe-t1':'No activities selected yet', 'pe-t2':'Go to Discover and pick some events', 'pe-btn':'Go to Discover ↗',
+    'plan-notice':'💡 Auto-scheduled on weekends — tap to expand',
+    'plan-title':'Scheduled activities', 'pref-title':'Weekend preferences', 'pref-sub':'Which day(s) per weekend?',
+    'pr-sat':'Sat only', 'pr-sun':'Sun only', 'pr-both':'Either day',
+    'sync-title':'Sync to calendar', 'sync-g-btn':'📅 Google Calendar', 'sync-a-btn':'🍎 Apple Calendar',
+    'cal-ev-title':'This month', 'cal-legend':'🔴 Red = pre-booking required   🔵 Blue = walk-in ok',
+    days:['Mo','Tu','We','Th','Fr','Sa','Su'],
+    needsBooking:'Pre-booking required', noBooking:'No booking needed', fromScan:'📷 Scanned',
+    addPlan:'➕ Add to plan', removeBtn:'✓ Selected · Remove', collapseBtn:'Collapse',
+    bookWarn:'⚠ Pre-booking required — book soon', bookOk:'✓ Walk-in welcome',
+    website:'Official website', visitSite:'Visit site', descLabel:'About this activity',
+    scanSuccess:'✓ Recognised! Details auto-filled',
+    scanAddBtn:'➕ Add to activity list', scanAdded:'✅ Added to activity list!',
+    goDiscover:'Go to Discover ↗',
+    bookNeeded:'Book', bookFree:'Walk-in',
+  }
+};
+const t = k => T[lang][k] || k;
+
+// ── LANGUAGE ──
+function setLang(l) {
+  lang = l;
+  document.querySelectorAll('.lang-btn').forEach((b,i) => b.classList.toggle('on', ['zh','en'][i] === l));
+  applyLang();
+  renderActive();
+}
+
+function applyLang() {
+  const ids = ['ht','hs','load-t1','load-t2','disc-load-txt','disc-title','go-plan-btn','pe-t1','pe-t2','pe-btn','plan-notice','plan-title','pref-title','pref-sub','sync-title','sync-g-btn','sync-a-btn','cal-ev-title','cal-legend','up-main','up-sub'];
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.textContent = t(id); });
+  ['tl-scan','tl-disc','tl-plan','tl-cal'].forEach((id,i) => { const el = document.getElementById(id); if (el) el.textContent = t('tl')[i]; });
+  ['sl1','sl2','sl3','sl4'].forEach((id,i) => { const el = document.getElementById(id); if (el) el.textContent = t('sl')[i]; });
+  ['pr-sat','pr-sun','pr-both'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = t(id); });
+}
+
+// ── TABS ──
+function goTab(tab) {
+  ['scan','disc','plan','cal'].forEach(x => {
+    document.getElementById('pg-'+x).classList.toggle('on', x === tab);
+    document.getElementById('tab-'+x).classList.toggle('on', x === tab);
+  });
+  if (tab === 'disc' && !activitiesLoaded) loadActivities();
+  renderActive();
+}
+
+function renderActive() {
+  const cur = ['scan','disc','plan','cal'].find(x => document.getElementById('pg-'+x).classList.contains('on'));
+  if (cur === 'disc') renderActs();
+  if (cur === 'plan') renderPlan();
+  if (cur === 'cal') renderCal();
+}
+
+// ── SCAN ──
+function onFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const dataUrl = ev.target.result;
+    const img = document.getElementById('previewImg');
+    img.src = dataUrl;
+    img.style.display = 'block';
+    document.getElementById('posterPlaceholder').style.display = 'none';
+    document.getElementById('up-sec').style.display = 'none';
+    document.getElementById('prev-sec').style.display = 'block';
+    startScan(dataUrl, file.type);
+  };
+  reader.readAsDataURL(file);
+}
+
+function startScan(dataUrl, mimeType) {
+  document.getElementById('scan-load').style.display = 'block';
+  setStep(1,'done'); setStep(2,'act');
+
+  const base64 = dataUrl.split(',')[1];
+
+  setTimeout(() => { setStep(2,'done'); setStep(3,'act'); }, 1200);
+
+  fetch('/api/scan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageBase64: base64, mimeType: mimeType || 'image/jpeg' })
+  })
+  .then(r => r.json())
+  .then(data => {
+    setStep(3,'done'); setStep(4,'act');
+    document.getElementById('scan-load').style.display = 'none';
+    if (data.success && data.activity) {
+      showScanResult(data.activity);
+    } else {
+      showScanError(data.error || 'Unknown error');
+    }
+  })
+  .catch(err => {
+    document.getElementById('scan-load').style.display = 'none';
+    showScanError(err.message);
+  });
+}
+
+function showScanResult(a) {
+  setStep(4,'done');
+  const el = document.getElementById('scan-res');
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="notice n-ok">${t('scanSuccess')}</div>
+    <div class="card" style="padding:14px">
+      <div class="flabel">${t('fl-name') || '活动名称'}</div>
+      <div class="fval">${a.name || '—'}</div>
+      <div class="flabel">${t('fl-loc') || '地点'}</div>
+      <div class="fval">${a.location || '—'}</div>
+      <div class="flabel">${t('fl-dates') || '时间'}</div>
+      <div class="fval">${a.dates || '—'} ${a.times ? '· ' + a.times : ''}</div>
+      <div class="flabel">${t('fl-price') || '票价'}</div>
+      <div class="fval">${a.price || '—'}</div>
+      <div class="flabel">${t('fl-book') || '订票方式'}</div>
+      <div class="fval">${a.booking || '—'}</div>
+      <div class="flabel">${t('fl-adv') || '是否需要提前订票'}</div>
+      <div class="fval">
+        ${a.needsBooking
+          ? '<span class="badge b-amber">⚠ 建议提前预订</span>'
+          : '<span class="badge b-green">✓ 无需提前预订</span>'}
+      </div>
+    </div>
+    <button class="btn btn-p btn-w" onclick="addScannedActivity(${JSON.stringify(a).replace(/"/g,'&quot;')})">${t('scanAddBtn')}</button>
+  `;
+}
+
+function showScanError(msg) {
+  const el = document.getElementById('scan-res');
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="notice n-red">❌ 识别失败：${msg}</div>
+    <button class="btn btn-w" onclick="location.reload()">重新上传</button>
+  `;
+}
+
+function addScannedActivity(a) {
+  const newAct = {
+    id: Date.now(),
+    emoji: '📷',
+    name: a.name || 'Scanned Activity',
+    nameZh: a.name,
+    description: a.description || '',
+    descriptionEn: a.descriptionEn || a.description || '',
+    location: a.location || '',
+    dates: a.dates || '',
+    datesEn: a.dates || '',
+    time: a.times || '',
+    time_en: a.times || '',
+    price: a.price || '',
+    priceEn: a.price || '',
+    booking: a.booking || '',
+    bookingUrl: a.booking ? 'https://' + a.booking.replace(/^https?:\/\//,'') : '#',
+    needsBooking: a.needsBooking || false,
+    tags: a.tags || [],
+    tagsZh: a.tags || [],
+    scan: true
+  };
+  activities.unshift(newAct);
+  sel.add(newAct.id);
+  autoSchedule();
+  document.getElementById('scan-res').innerHTML = `
+    <div class="notice n-ok">${t('scanAdded')}</div>
+    <button class="btn btn-p btn-w" onclick="goTab('disc')">${t('goDiscover')}</button>
+  `;
+}
+
+function setStep(n, state) {
+  const el = document.getElementById('s'+n);
+  if (state === 'done') { el.className = 'step-num sn-done'; el.textContent = '✓'; }
+  else if (state === 'act') { el.className = 'step-num sn-act'; el.textContent = n; }
+}
+
+// ── DISCOVER ──
+function loadActivities() {
+  document.getElementById('disc-loading').style.display = 'block';
+  document.getElementById('disc-content').style.display = 'none';
+  document.getElementById('disc-empty').style.display = 'none';
+
+  fetch('/api/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+  .then(r => r.json())
+  .then(data => {
+    document.getElementById('disc-loading').style.display = 'none';
+    if (data.success && data.activities) {
+      const scanned = activities.filter(a => a.scan);
+      activities = [...scanned, ...data.activities];
+      activitiesLoaded = true;
+      const notice = document.getElementById('disc-notice');
+      if (notice) notice.textContent = `🔍 ${lang === 'zh' ? '已搜索法兰克福近期儿童活动，共找到' : 'Found'} ${data.activities.length} ${lang === 'zh' ? '项' : 'events in Frankfurt'}`;
+      document.getElementById('disc-content').style.display = 'block';
+      renderActs();
+    } else {
+      document.getElementById('disc-empty').style.display = 'block';
+    }
+  })
+  .catch(() => {
+    document.getElementById('disc-loading').style.display = 'none';
+    document.getElementById('disc-empty').style.display = 'block';
+  });
+}
+
+function renderActs() {
+  if (!activitiesLoaded) return;
+  document.getElementById('act-list').innerHTML = activities.map(a => actCardHTML(a)).join('');
+}
+
+function actCardHTML(a) {
+  const isOpen = openId === a.id;
+  const isSel = sel.has(a.id);
+  const name = lang === 'zh' ? (a.nameZh || a.name) : a.name;
+  const desc = lang === 'zh' ? a.description : a.descriptionEn;
+  const dates = lang === 'zh' ? a.dates : (a.datesEn || a.dates);
+  const time = lang === 'zh' ? a.time : (a.time_en || a.time);
+  const price = lang === 'zh' ? a.price : (a.priceEn || a.price);
+  const tags = lang === 'zh' ? (a.tagsZh || a.tags || []) : (a.tags || []);
+
+  return `<div class="act-wrap">
+    <div class="act-card ${isSel?'sel':''} ${a.needsBooking?'nb':''}" id="card-${a.id}">
+      <div class="act-summary" onclick="toggleOpen(${a.id})">
+        <div class="act-ic">${a.emoji || '🎯'}</div>
+        <div class="act-info">
+          <div class="act-name">${name} ${a.scan?`<span class="badge b-blue">${t('fromScan')}</span>`:''}</div>
+          <div class="act-meta">📍 ${a.location || ''}</div>
+          <div class="act-meta">🗓 ${dates || ''} ${time ? '· '+time : ''}</div>
+          <div class="act-meta" style="color:${a.needsBooking?'#C62828':'#2E7D32'}">${a.needsBooking ? '🔴 '+t('needsBooking') : '🟢 '+t('noBooking')}</div>
+          <div class="act-tags">
+            ${tags.slice(0,3).map(tg=>`<span class="badge b-gray">${tg}</span>`).join('')}
+            ${a.ageRange ? `<span class="badge b-gray">${a.ageRange}</span>` : ''}
+            <span class="badge b-gray">💶 ${price || ''}</span>
+          </div>
+        </div>
+        <div class="act-right">
+          <div class="chk ${isSel?'on':''}" onclick="toggleSelClick(event,${a.id})">${isSel?'✓':''}</div>
+          <div class="chevron ${isOpen?'open':''}">▼</div>
+        </div>
+      </div>
+      <div class="act-detail ${isOpen?'open':''}">
+        <div class="notice ${a.needsBooking?'n-warn':'n-ok'}" style="margin-bottom:10px">${a.needsBooking?t('bookWarn'):t('bookOk')}</div>
+        ${desc ? `<div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">${t('descLabel')}</div><div class="detail-desc">${desc}</div>` : ''}
+        <div class="detail-row"><div class="detail-icon">📍</div><div><div class="detail-label">${t('fl-loc')||'地点'}</div><div class="detail-text">${a.location||''}</div></div></div>
+        <div class="detail-row"><div class="detail-icon">🗓</div><div><div class="detail-label">${t('fl-dates')||'时间'}</div><div class="detail-text">${dates||''} ${time ? '· '+time : ''}</div></div></div>
+        <div class="detail-row"><div class="detail-icon">💶</div><div><div class="detail-label">${t('fl-price')||'票价'}</div><div class="detail-text">${price||''}</div></div></div>
+        ${a.bookingUrl && a.bookingUrl !== '#' ? `
+        <a class="website-link" href="${a.bookingUrl}" target="_blank" rel="noopener">
+          <div class="website-link-ic">🔗</div>
+          <div style="flex:1;min-width:0">
+            <div class="website-link-name">${a.booking || a.bookingUrl}</div>
+            <div class="website-link-url">${a.bookingUrl}</div>
+          </div>
+          <span class="badge b-blue">${t('visitSite')} ↗</span>
+        </a>` : ''}
+        <div class="detail-actions">
+          <button class="btn ${isSel?'':'btn-p'}" style="flex:1;font-size:12px" onclick="toggleSelClick(event,${a.id})">
+            ${isSel ? t('removeBtn') : t('addPlan')}
+          </button>
+          <button class="btn btn-sm" onclick="toggleOpen(${a.id})" style="font-size:12px">${t('collapseBtn')} ▲</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleOpen(id) {
+  openId = (openId === id) ? null : id;
+  renderActive();
+  if (openId) {
+    setTimeout(() => {
+      const el = document.getElementById('card-'+id);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 60);
+  }
+}
+
+function toggleSelClick(e, id) {
+  e.stopPropagation();
+  sel.has(id) ? sel.delete(id) : sel.add(id);
+  autoSchedule();
+  renderActive();
+}
+
+// ── PLAN ──
+function autoSchedule() {
+  scheduled = [];
+  const selected = activities.filter(a => sel.has(a.id));
+  const weekends = getWeekends(selected.length);
+  selected.forEach((a, i) => { if (weekends[i]) scheduled.push({ act: a, date: weekends[i] }); });
+}
+
+function getWeekends(n) {
+  const r = []; let d = new Date(); d.setDate(d.getDate() + 1);
+  while (r.length < n + 16) {
+    const dw = d.getDay();
+    if ((pref==='sat'&&dw===6)||(pref==='sun'&&dw===0)||(pref==='both'&&(dw===6||dw===0))) r.push(new Date(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return r.slice(0, n);
+}
+
+function renderPlan() {
+  autoSchedule();
+  const empty = document.getElementById('plan-empty');
+  const body = document.getElementById('plan-body');
+  if (scheduled.length === 0) { empty.style.display='block'; body.style.display='none'; return; }
+  empty.style.display = 'none'; body.style.display = 'block';
+  document.getElementById('planned').innerHTML = scheduled.map(ev => `
+    <div class="ev-item ${ev.act.needsBooking?'ri':'bi'}">
+      <div class="ev-dot ${ev.act.needsBooking?'r':'b'}"></div>
+      <div class="ev-dets">
+        <div class="ev-name">${ev.act.emoji||'🎯'} ${lang==='zh'?(ev.act.nameZh||ev.act.name):ev.act.name}</div>
+        <div class="ev-date">${fmtDate(ev.date)} · ${ev.act.time||''}</div>
+        ${ev.act.needsBooking ? `<div style="font-size:10px;color:#C62828;margin-top:2px">⚠ ${t('needsBooking')}</div>` : ''}
+      </div>
+      <span class="badge ${ev.act.needsBooking?'b-red':'b-green'}">${ev.act.needsBooking?t('bookNeeded'):t('bookFree')}</span>
+    </div>`).join('');
+  applyLang();
+}
+
+function setPref(p) {
+  pref = p;
+  ['sat','sun','both'].forEach(x => { document.getElementById('pr-'+x).className = 'btn btn-sm' + (x===p?' btn-p':''); });
+  autoSchedule(); renderPlan();
+}
+
+function fmtDate(d) {
+  const zd=['日','一','二','三','四','五','六'], ed=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const em=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return lang==='zh' ? `${d.getMonth()+1}月${d.getDate()}日（周${zd[d.getDay()]}）` : `${ed[d.getDay()]}, ${d.getDate()} ${em[d.getMonth()]}`;
+}
+
+// ── GOOGLE CALENDAR ──
+function exportGoogleCalendar() {
+  if (scheduled.length === 0) return alert(lang==='zh'?'请先选择活动':'Please select activities first');
+  scheduled.forEach(ev => {
+    const d = ev.date;
+    const pad = n => String(n).padStart(2,'0');
+    const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+    const name = encodeURIComponent((lang==='zh'?(ev.act.nameZh||ev.act.name):ev.act.name));
+    const loc = encodeURIComponent(ev.act.location||'Frankfurt');
+    const details = encodeURIComponent((lang==='zh'?(ev.act.description||''):(ev.act.descriptionEn||'')) + (ev.act.needsBooking ? (lang==='zh'?' ⚠ 请提前订票':' ⚠ Pre-booking required') : ''));
+    const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${name}&dates=${dateStr}/${dateStr}&location=${loc}&details=${details}`;
+    window.open(url, '_blank');
+  });
+}
+
+// ── APPLE CALENDAR (.ics) ──
+function exportAppleCalendar() {
+  if (scheduled.length === 0) return alert(lang==='zh'?'请先选择活动':'Please select activities first');
+  const pad = n => String(n).padStart(2,'0');
+  let ics = 'BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Frankfurt Kids//EN\n';
+  scheduled.forEach(ev => {
+    const d = ev.date;
+    const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+    const name = (lang==='zh'?(ev.act.nameZh||ev.act.name):ev.act.name);
+    const desc = (lang==='zh'?(ev.act.description||''):(ev.act.descriptionEn||''));
+    const alarm = ev.act.needsBooking ? '\nBEGIN:VALARM\nTRIGGER:-P3D\nACTION:DISPLAY\nDESCRIPTION:请提前订票 / Pre-booking required\nEND:VALARM' : '';
+    ics += `BEGIN:VEVENT\nDTSTART;VALUE=DATE:${dateStr}\nDTEND;VALUE=DATE:${dateStr}\nSUMMARY:${name}\nLOCATION:${ev.act.location||''}\nDESCRIPTION:${desc.replace(/\n/g,'\\n')}${alarm}\nEND:VEVENT\n`;
+  });
+  ics += 'END:VCALENDAR';
+  const blob = new Blob([ics], { type: 'text/calendar' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'frankfurt-kids-activities.ics'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── CALENDAR ──
+function renderCal() {
+  autoSchedule();
+  const em = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const emZh = ['1','2','3','4','5','6','7','8','9','10','11','12'];
+  document.getElementById('cal-mo-lbl').textContent = lang==='zh' ? `${calMo.getFullYear()}年${emZh[calMo.getMonth()]}月` : `${em[calMo.getMonth()]} ${calMo.getFullYear()}`;
+  document.getElementById('cal-hdrs').innerHTML = t('days').map((h,i) => `<div class="cal-hd" style="${i>=5?'color:#E53935':''}">${h}</div>`).join('');
+  let fd = new Date(calMo.getFullYear(), calMo.getMonth(), 1).getDay(); fd = fd===0?6:fd-1;
+  const dim = new Date(calMo.getFullYear(), calMo.getMonth()+1, 0).getDate();
+  const today = new Date(); today.setHours(0,0,0,0);
+  const evMap = {};
+  scheduled.forEach(ev => { const k=`${ev.date.getMonth()}-${ev.date.getDate()}-${ev.date.getFullYear()}`; evMap[k] = ev.act.needsBooking?'r':'b'; });
+  let html = '';
+  for (let i=0;i<fd;i++) html += '<div class="cal-d om"></div>';
+  for (let d=1;d<=dim;d++) {
+    const dt = new Date(calMo.getFullYear(), calMo.getMonth(), d);
+    const dw = dt.getDay(), we = dw===0||dw===6, isT = dt.getTime()===today.getTime();
+    const k = `${calMo.getMonth()}-${d}-${calMo.getFullYear()}`, ev = evMap[k];
+    let cls = 'cal-d';
+    if (isT) cls += ' td';
+    else if (ev==='r') cls += ' hbk';
+    else if (ev==='b') cls += ' hev';
+    else if (we) cls += ' we';
+    html += `<div class="${cls}">${d}${ev?`<div class="dot dot-${ev}"></div>`:''}</div>`;
+  }
+  document.getElementById('cal-days').innerHTML = html;
+  const mevs = scheduled.filter(ev => ev.date.getMonth()===calMo.getMonth() && ev.date.getFullYear()===calMo.getFullYear());
+  document.getElementById('cal-ev-list').innerHTML = mevs.length ? mevs.map(ev=>`
+    <div class="ev-item ${ev.act.needsBooking?'ri':'bi'}">
+      <div class="ev-dot ${ev.act.needsBooking?'r':'b'}"></div>
+      <div class="ev-dets">
+        <div class="ev-name">${ev.act.emoji||'🎯'} ${lang==='zh'?(ev.act.nameZh||ev.act.name):ev.act.name}</div>
+        <div class="ev-date">${fmtDate(ev.date)}</div>
+      </div>
+      <span class="badge ${ev.act.needsBooking?'b-red':'b-green'}">${ev.act.needsBooking?t('bookNeeded'):t('bookFree')}</span>
+    </div>`).join('') : `<div class="empty" style="padding:16px 0;font-size:12px">${lang==='zh'?'本月暂无安排':'No events this month'}</div>`;
+  applyLang();
+}
+
+function prevMo() { calMo.setMonth(calMo.getMonth()-1); renderCal(); }
+function nextMo() { calMo.setMonth(calMo.getMonth()+1); renderCal(); }
+
+// ── INIT ──
+applyLang();
+renderCal();
+</script>
+</body>
+</html>
