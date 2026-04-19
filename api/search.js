@@ -1,9 +1,13 @@
-async function googleSearch(query) {
-  const url = `https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_API_KEY}&cx=${process.env.GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=1`;
+async function googleSearch(query, num = 5) {
+  const url = `https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_API_KEY}&cx=${process.env.GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=${num}`;
   const res = await fetch(url);
-  if (!res.ok) return null;
+  if (!res.ok) return [];
   const data = await res.json();
-  return data.items?.[0]?.link || null;
+  return (data.items || []).map(item => ({
+    title: item.title,
+    snippet: item.snippet,
+    url: item.link
+  }));
 }
 
 export default async function handler(req, res) {
@@ -15,14 +19,50 @@ export default async function handler(req, res) {
 
   try {
     const today = new Date();
-    const twoMonths = new Date(today);
-    twoMonths.setMonth(twoMonths.getMonth() + 2);
-    const range = `${today.toISOString().split('T')[0]} to ${twoMonths.toISOString().split('T')[0]}`;
+    const nextMonth = new Date(today);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    const monthDE = nextMonth.toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+    const monthEN = nextMonth.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
 
-    const prompt = `List 6 children's activities in Frankfurt am Main for ${range}. Use real venues: Frankfurt Zoo, Senckenberg Museum, Städel Museum, Palmengarten, Römerberg, Kindermuseum Frankfurt.
+    // Search Google for real Frankfurt children's events in parallel
+    const queries = [
+      `Frankfurt Kinder Veranstaltungen ${monthDE}`,
+      `Frankfurt Kinder Ausflug Programm ${monthDE}`,
+      `children events Frankfurt ${monthEN}`,
+      `Frankfurt Familien Ausflug ${monthDE} Tipps`
+    ];
 
-Return ONLY this JSON array, no other text:
-[{"id":1,"emoji":"🦁","name":"Event name","nameZh":"活动中文名","description":"一两句中文介绍。","descriptionEn":"One or two sentences in English.","location":"Real Frankfurt address","dates":"Datum DE","datesEn":"Date EN","time":"10:00-17:00","price":"Erw. €12 / Kinder €6","priceEn":"Adults €12 / Children €6","booking":"zoo-frankfurt.de","bookingUrl":"https://www.zoo-frankfurt.de","needsBooking":false,"tags":["Animals","Outdoor"],"tagsZh":["动物","户外"],"ageRange":"3+"}]`;
+    const searchResults = await Promise.all(queries.map(q => googleSearch(q, 5)));
+    const allResults = searchResults.flat();
+
+    // Deduplicate by URL
+    const seen = new Set();
+    const uniqueResults = allResults.filter(r => {
+      if (seen.has(r.url)) return false;
+      seen.add(r.url);
+      return true;
+    });
+
+    const resultsText = uniqueResults
+      .map((r, i) => `[${i + 1}] Title: ${r.title}\nSnippet: ${r.snippet}\nURL: ${r.url}`)
+      .join('\n\n');
+
+    const prompt = `You are helping a Chinese family in Frankfurt discover children's activities for ${monthEN}.
+
+Below are real Google search results about Frankfurt children's events. Extract exactly 6 distinct, specific activities from these results. Prefer results that mention concrete venues, dates, or times. Use the exact URL from the search result as bookingUrl.
+
+SEARCH RESULTS:
+${resultsText}
+
+Return ONLY a JSON array of 6 activities, no other text:
+[{"id":1,"emoji":"🦁","name":"Event name in German/English","nameZh":"活动中文名","description":"一两句中文介绍。","descriptionEn":"One or two sentences in English.","location":"Venue name and Frankfurt address","dates":"Date in German format","datesEn":"Date in English format","time":"HH:MM-HH:MM","price":"Erw. €X / Kinder €X","priceEn":"Adults €X / Children €X","booking":"website.de","bookingUrl":"https://exact-url-from-search-results","needsBooking":false,"tags":["Tag1","Tag2"],"tagsZh":["标签1","标签2"],"ageRange":"3+"}]
+
+Rules:
+- Use the exact URL from the search result for bookingUrl
+- If dates/times are not in the search results, omit or write "see website"
+- needsBooking: true only if the snippet mentions booking/reservation required
+- Translate all names and descriptions into Chinese for nameZh and description fields
+- Pick diverse activity types (museum, outdoor, show, sport, etc.)`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -33,7 +73,7 @@ Return ONLY this JSON array, no other text:
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2500,
+        max_tokens: 3000,
         messages: [{ role: 'user', content: prompt }]
       })
     });
@@ -47,14 +87,6 @@ Return ONLY this JSON array, no other text:
     const text = data.content[0].text.trim();
     const clean = text.replace(/```json|```/g, '').trim();
     const activities = JSON.parse(clean);
-
-    // Search for real URLs in parallel
-    const urls = await Promise.all(
-      activities.map(a => googleSearch(`${a.name} Frankfurt`))
-    );
-    urls.forEach((url, i) => {
-      if (url) activities[i].bookingUrl = url;
-    });
 
     return res.status(200).json({ success: true, activities });
 
