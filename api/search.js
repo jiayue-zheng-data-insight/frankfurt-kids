@@ -16,8 +16,30 @@ async function serperSearch(query) {
   return organic.map(r => ({ title: r.title, snippet: r.snippet, url: r.link }));
 }
 
-// Fetch a page and return stripped readable text (max 4000 chars)
-async function fetchPageText(url) {
+// Extract event detail links from HTML (relative → absolute)
+function extractEventLinks(html, baseUrl) {
+  const base = new URL(baseUrl);
+  const hrefs = [];
+  const re = /href=["']([^"']+)["']/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    try {
+      const abs = new URL(m[1], base).href;
+      // Keep only same-domain links that look like specific event/detail pages
+      if (abs.startsWith(base.origin) && abs !== baseUrl) {
+        const path = new URL(abs).pathname;
+        if (path.length > 1 && /event|veranstaltung|show|detail|programm|kurs|workshop|ausstellung/i.test(path)) {
+          hrefs.push(abs);
+        }
+      }
+    } catch {}
+  }
+  // Deduplicate
+  return [...new Set(hrefs)].slice(0, 15);
+}
+
+// Fetch a page; return { text, eventLinks }
+async function fetchPage(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6000);
   try {
@@ -28,6 +50,7 @@ async function fetchPageText(url) {
     clearTimeout(timer);
     if (!res.ok) { console.warn(`[Fetch] ${url} → ${res.status}`); return null; }
     const html = await res.text();
+    const eventLinks = extractEventLinks(html, url);
     const text = html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -35,8 +58,9 @@ async function fetchPageText(url) {
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 4000);
-    console.log(`[Fetch] ${url} → ${text.length} chars`);
-    return text;
+    console.log(`[Fetch] ${url} → ${text.length} chars, ${eventLinks.length} event links`);
+    eventLinks.forEach(l => console.log(`  ↳ ${l}`));
+    return { text, eventLinks };
   } catch (e) {
     clearTimeout(timer);
     console.warn(`[Fetch] ${url} → ${e.message}`);
@@ -117,16 +141,25 @@ export default async function handler(req, res) {
     // Step 2: Fetch actual page content in parallel (top 8, 6s timeout each)
     const pages = await Promise.all(
       uniqueResults.slice(0, 8).map(async r => {
-        const text = await fetchPageText(r.url);
-        return { url: r.url, title: r.title, text };
+        const result = await fetchPage(r.url);
+        return { url: r.url, title: r.title, ...(result || { text: null, eventLinks: [] }) };
       })
     );
     const fetchedPages = pages.filter(p => p.text);
     console.log(`[Search] ${fetchedPages.length}/${pages.length} pages fetched successfully`);
 
-    // Build context: full page text preferred over snippet
+    // Collect all discovered event detail links across all fetched pages
+    const allEventLinks = [...new Set(fetchedPages.flatMap(p => p.eventLinks || []))];
+    console.log(`[Search] ${allEventLinks.length} total event detail links found`);
+
+    // Build context: page text + discovered event-specific links
     const context = fetchedPages.length > 0
-      ? fetchedPages.map((p, i) => `[${i + 1}] URL: ${p.url}\n${p.text}`).join('\n\n---\n\n')
+      ? fetchedPages.map((p, i) => {
+          const links = (p.eventLinks || []).length > 0
+            ? `\nEvent detail links found on this page:\n${p.eventLinks.map(l => `  - ${l}`).join('\n')}`
+            : '';
+          return `[${i + 1}] PAGE URL: ${p.url}${links}\n\nPAGE TEXT:\n${p.text}`;
+        }).join('\n\n---\n\n')
       : uniqueResults.map((r, i) => `[${i + 1}] URL: ${r.url}\nTitle: ${r.title}\n${r.snippet}`).join('\n\n');
 
     const prompt = `You are helping a Chinese family in Frankfurt find children's activities for ${dateRange}.
@@ -145,7 +178,7 @@ Each object must have exactly these fields:
 
 Rules:
 - Read location, dates, price directly from the page text — do not guess
-- bookingUrl must be the exact page URL from the list above
+- bookingUrl: use a specific event detail link from "Event detail links found on this page" when available — these are deeper links to the actual event page. Only fall back to the PAGE URL if no detail link matches the activity
 - description MUST be in Chinese; descriptionEn MUST be in English; never leave German in these fields
 - nameZh must be a Chinese translation of the event name
 - tags in English, tagsZh same tags in Chinese
