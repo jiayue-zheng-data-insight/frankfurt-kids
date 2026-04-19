@@ -491,7 +491,7 @@ function loadActivities() {
   .then(r => r.json())
   .then(data => {
     document.getElementById('disc-loading').style.display = 'none';
-    if (data.success && data.activities) {
+    if (data.success && data.activities && data.activities.length > 0) {
       const scanned = activities.filter(a => a.scan);
       activities = [...scanned, ...data.activities];
       activitiesLoaded = true;
@@ -501,11 +501,15 @@ function loadActivities() {
       document.getElementById('disc-content').style.display = 'block';
       renderActs();
     } else {
+      const errEl = document.getElementById('disc-err-txt');
+      if (errEl) errEl.textContent = data.error ? `搜索失败：${data.error}` : '搜索失败，请重试';
       document.getElementById('disc-empty').style.display = 'block';
     }
   })
-  .catch(() => {
+  .catch(err => {
     document.getElementById('disc-loading').style.display = 'none';
+    const errEl = document.getElementById('disc-err-txt');
+    if (errEl) errEl.textContent = `搜索失败：${err.message}`;
     document.getElementById('disc-empty').style.display = 'block';
   });
 }

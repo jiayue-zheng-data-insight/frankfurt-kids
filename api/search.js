@@ -16,10 +16,10 @@ async function serperSearch(query) {
   return organic.map(r => ({ title: r.title, snippet: r.snippet, url: r.link }));
 }
 
-// Fetch a page and return stripped readable text (max 4000 chars)
+// Fetch a page and return stripped readable text (max 2000 chars)
 async function fetchPageText(url) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6000);
+  const timer = setTimeout(() => controller.abort(), 4000);
   try {
     const res = await fetch(url, {
       signal: controller.signal,
@@ -34,7 +34,7 @@ async function fetchPageText(url) {
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
-      .slice(0, 4000);
+      .slice(0, 2000);
     console.log(`[Fetch] ${url} → ${text.length} chars`);
     return text;
   } catch (e) {
@@ -114,9 +114,9 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'Serper returned no results. Check SERPER_API_KEY in Vercel.' });
     }
 
-    // Step 2: Fetch actual page content in parallel (top 12, 6s timeout each)
+    // Step 2: Fetch actual page content in parallel (top 6, 4s timeout each)
     const pages = await Promise.all(
-      uniqueResults.slice(0, 12).map(async r => {
+      uniqueResults.slice(0, 6).map(async r => {
         const text = await fetchPageText(r.url);
         return { url: r.url, title: r.title, text };
       })
