@@ -21,15 +21,18 @@ export default async function handler(req, res) {
     const today = new Date();
     const nextMonth = new Date(today);
     nextMonth.setMonth(nextMonth.getMonth() + 1);
-    const monthDE = nextMonth.toLocaleString('de-DE', { month: 'long', year: 'numeric' });
-    const monthEN = nextMonth.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    const curMonthDE = today.toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+    const nextMonthDE = nextMonth.toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+    const curMonthEN = today.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    const nextMonthEN = nextMonth.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
 
     // Search Google for real Frankfurt children's events in parallel
+    // Cover both current month and next month to capture the full upcoming 30 days
     const queries = [
-      `Frankfurt Kinder Veranstaltungen ${monthDE}`,
-      `Frankfurt Kinder Ausflug Programm ${monthDE}`,
-      `children events Frankfurt ${monthEN}`,
-      `Frankfurt Familien Ausflug ${monthDE} Tipps`
+      `Frankfurt Kinder Veranstaltungen ${curMonthDE}`,
+      `Frankfurt Kinder Veranstaltungen ${nextMonthDE}`,
+      `children events Frankfurt ${curMonthEN} ${nextMonthEN}`,
+      `Frankfurt Familien Ausflug Tipps aktuell`
     ];
 
     const searchResults = await Promise.all(queries.map(q => googleSearch(q, 5)));
@@ -47,7 +50,7 @@ export default async function handler(req, res) {
       .map((r, i) => `[${i + 1}] Title: ${r.title}\nSnippet: ${r.snippet}\nURL: ${r.url}`)
       .join('\n\n');
 
-    const prompt = `You are helping a Chinese family in Frankfurt discover children's activities for ${monthEN}.
+    const prompt = `You are helping a Chinese family in Frankfurt discover children's activities for ${curMonthEN} and ${nextMonthEN} (the upcoming 30 days).
 
 Below are real Google search results about Frankfurt children's events. Extract exactly 6 distinct, specific activities from these results. Prefer results that mention concrete venues, dates, or times. Use the exact URL from the search result as bookingUrl.
 
