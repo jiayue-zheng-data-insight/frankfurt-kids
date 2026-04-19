@@ -1,25 +1,16 @@
-async function googleSearch(query, num = 3) {
+async function googleSearch(query, num = 5) {
   const url = `https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_API_KEY}&cx=${process.env.GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=${num}`;
   const res = await fetch(url);
   if (!res.ok) {
     const body = await res.text();
-    console.error(`[Google] FAILED query="${query}" status=${res.status} body=${body.slice(0, 200)}`);
+    console.error(`[Google] FAILED query="${query}" status=${res.status} body=${body.slice(0, 300)}`);
     return [];
   }
   const data = await res.json();
   const items = data.items || [];
-  console.log(`[Google] query="${query}" → ${items.length} results: ${items.map(i => i.link).join(', ')}`);
+  console.log(`[Google] query="${query}" → ${items.length} results`);
+  items.forEach(item => console.log(`  • ${item.link}`));
   return items.map(item => ({ title: item.title, snippet: item.snippet, url: item.link }));
-}
-
-// Returns true if a URL looks like a specific event/program page, not just a homepage
-function isEventPage(url) {
-  try {
-    const { pathname } = new URL(url);
-    return pathname.length > 1 && pathname !== '/';
-  } catch {
-    return false;
-  }
 }
 
 async function callClaude(system, prompt) {
@@ -66,81 +57,71 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const today = new Date();
-    const nextMonth = new Date(today);
+    const curMonthEN = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    const nextMonth = new Date();
     nextMonth.setMonth(nextMonth.getMonth() + 1);
-    const curMonthDE = today.toLocaleString('de-DE', { month: 'long', year: 'numeric' });
-    const nextMonthDE = nextMonth.toLocaleString('de-DE', { month: 'long', year: 'numeric' });
-    const curMonthEN = today.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     const nextMonthEN = nextMonth.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     const dateRange = `${curMonthEN} and ${nextMonthEN}`;
 
-    // Search specific Frankfurt venues for their event/program pages
+    // Broad natural-language searches — no year/month to avoid CSE missing results
     const queries = [
-      `zoo-frankfurt.de Kinder Veranstaltungen ${curMonthDE} ${nextMonthDE}`,
-      `senckenberg.de Kinder Workshop Programm ${curMonthDE} ${nextMonthDE}`,
-      `palmengarten.de Kinder Programm ${curMonthDE} ${nextMonthDE}`,
-      `kindermuseum-frankfurt.de Veranstaltungen ${curMonthDE} ${nextMonthDE}`,
-      `staedelmuseum.de Kinder Familie Programm ${curMonthDE}`,
-      `frankfurt.de Kinder Veranstaltungen Ausflug ${curMonthDE} ${nextMonthDE}`
+      'Frankfurt Kinder Veranstaltungen Wochenende aktuell',
+      'Frankfurt Kinder Ausflug Tipps aktuell',
+      'was ist los Frankfurt Kinder Familie Wochenende',
+      'Frankfurt Familien Freizeitangebote Kinder'
     ];
 
-    const searchResults = await Promise.all(queries.map(q => googleSearch(q, 3)));
+    const searchResults = await Promise.all(queries.map(q => googleSearch(q, 5)));
     const allResults = searchResults.flat();
 
-    // Deduplicate by URL, prefer event pages over homepages
     const seen = new Set();
     const uniqueResults = allResults.filter(r => {
       if (seen.has(r.url)) return false;
       seen.add(r.url);
       return true;
     });
-    const eventPageResults = uniqueResults.filter(r => isEventPage(r.url));
 
-    console.log(`[Search] total=${uniqueResults.length} eventPages=${eventPageResults.length}`);
-
-    // Use event pages if available, fall back to all results
-    const resultsToUse = eventPageResults.length >= 3 ? eventPageResults : uniqueResults;
+    console.log(`[Search] total unique results: ${uniqueResults.length}`);
 
     let activities;
 
-    if (resultsToUse.length > 0) {
-      const resultsText = resultsToUse
+    if (uniqueResults.length > 0) {
+      const resultsText = uniqueResults
         .map((r, i) => `[${i + 1}] Title: ${r.title}\nSnippet: ${r.snippet}\nURL: ${r.url}`)
         .join('\n\n');
 
-      const prompt = `Extract up to 6 distinct real children's activities in Frankfurt for ${dateRange} from the search results below.
+      const prompt = `You are helping a Chinese family in Frankfurt find children's weekend activities for ${dateRange}.
+
+Below are real Google search results. Extract exactly 6 distinct, specific children's activities from these results.
 
 SEARCH RESULTS:
 ${resultsText}
-
-Output a JSON array of up to 6 objects. Start with [ end with ]. Raw JSON only, no prose.
-
-Schema: ${SCHEMA}
-
-Rules:
-- bookingUrl MUST be the exact URL from the search result — a specific event or program page (e.g. /veranstaltungen/...), NOT a bare homepage like "https://www.zoo-frankfurt.de"
-- If a result is just a homepage with no event path, skip it
-- If dates/times not found in snippet, use "siehe Website" / "see website"
-- needsBooking: true only if snippet mentions reservation/Anmeldung required
-- Translate names and descriptions into Chinese for nameZh and description
-- Pick diverse activity types across different venues`;
-
-      const raw = await callClaude(SYSTEM, prompt);
-      activities = parseActivities(raw);
-      console.log(`[Search] parsed ${activities.length} activities from Google results`);
-
-    } else {
-      // Fallback: Claude generates from knowledge — clearly mark as unverified
-      console.warn('[Search] Google returned 0 usable results, falling back to Claude generation');
-      const prompt = `List 6 real children's activities at Frankfurt venues for ${dateRange}. Use: Frankfurt Zoo, Senckenberg Museum, Städel Museum, Palmengarten, Kindermuseum Frankfurt.
 
 Output a JSON array of exactly 6 objects. Start with [ end with ]. Raw JSON only, no prose.
 
 Schema: ${SCHEMA}
 
 Rules:
-- bookingUrl: use a plausible deep link to the venue's events/program page (e.g. https://www.zoo-frankfurt.de/veranstaltungen), NOT the bare homepage
+- bookingUrl must be the exact URL from the search result — prefer specific event/program pages over bare homepages
+- If dates/times not in snippet, use "siehe Website" / "see website"
+- needsBooking: true only if snippet mentions Anmeldung/reservation required
+- Translate names and descriptions into Chinese for nameZh and description
+- Pick diverse activity types (museum, outdoor, show, workshop, sport, etc.)`;
+
+      const raw = await callClaude(SYSTEM, prompt);
+      activities = parseActivities(raw);
+      console.log(`[Search] parsed ${activities.length} activities from Google results`);
+
+    } else {
+      console.warn('[Search] Google returned 0 results, falling back to Claude generation');
+      const prompt = `List 6 real children's weekend activities in Frankfurt am Main for ${dateRange}. Use well-known venues: Frankfurt Zoo, Senckenberg Museum, Städel Museum, Palmengarten, Kindermuseum Frankfurt, Römerberg.
+
+Output a JSON array of exactly 6 objects. Start with [ end with ]. Raw JSON only, no prose.
+
+Schema: ${SCHEMA}
+
+Rules:
+- bookingUrl: use a plausible deep link to the venue's events page (e.g. https://www.zoo-frankfurt.de/veranstaltungen), NOT the bare homepage
 - Translate names/descriptions into Chinese
 - Pick diverse activity types`;
 
@@ -150,7 +131,7 @@ Rules:
     }
 
     if (!Array.isArray(activities) || activities.length === 0) {
-      return res.status(500).json({ error: 'No activities parsed', detail: 'Claude returned an empty array' });
+      return res.status(500).json({ error: 'No activities parsed' });
     }
 
     return res.status(200).json({ success: true, activities });
