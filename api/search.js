@@ -56,25 +56,48 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const curMonthEN = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' });
-    const nextMonth = new Date();
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    const nextMonthEN = nextMonth.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const cutoff = new Date(today);
+    cutoff.setDate(cutoff.getDate() + 30);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+
+    const curMonthDE = today.toLocaleString('de-DE', { month: 'long' });
+    const curMonthEN = today.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    const nextMonthObj = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const nextMonthDE = nextMonthObj.toLocaleString('de-DE', { month: 'long' });
+    const nextMonthEN = nextMonthObj.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     const dateRange = `${curMonthEN} and ${nextMonthEN}`;
 
-    const results = await serperSearch('Kinderveranstaltungen Frankfurt 2026');
+    const results = await Promise.all([
+      serperSearch(`Kinderveranstaltungen Frankfurt ${curMonthDE} 2026`),
+      serperSearch(`Kinderveranstaltungen Frankfurt ${nextMonthDE} 2026`)
+    ]).then(r => r.flat());
 
-    if (results.length === 0) {
+    // Deduplicate by URL
+    const seen = new Set();
+    const uniqueResults = results.filter(r => {
+      if (seen.has(r.url)) return false;
+      seen.add(r.url);
+      return true;
+    });
+
+    console.log(`[Search] total unique results: ${uniqueResults.length}`);
+
+    if (uniqueResults.length === 0) {
       return res.status(502).json({ error: 'Serper returned no results. Check SERPER_API_KEY in Vercel.' });
     }
 
-    const resultsText = results
+    const resultsText = uniqueResults
       .map((r, i) => `[${i + 1}] Title: ${r.title}\nSnippet: ${r.snippet}\nURL: ${r.url}`)
       .join('\n\n');
 
     const prompt = `You are helping a Chinese family in Frankfurt find children's activities for ${dateRange}.
 
-Below are real Google search results about Frankfurt children's events. Extract up to 6 distinct activities.
+Today is ${todayStr}. Only include activities that are happening between ${todayStr} and ${cutoffStr} (the next 30 days). Skip anything that starts after ${cutoffStr} or has already ended.
+
+Below are real Google search results. Extract up to 6 distinct activities that fall within that date window.
 
 SEARCH RESULTS:
 ${resultsText}
@@ -85,8 +108,9 @@ Each object must have exactly these fields:
 {"id":1,"emoji":"🦁","name":"Event name","nameZh":"活动中文名","description":"一两句中文介绍。","descriptionEn":"One or two sentences in English.","location":"Venue, Frankfurt","dates":"Datum DE","datesEn":"Date EN","time":"HH:MM-HH:MM","price":"Erw. €X / Kinder €X","priceEn":"Adults €X / Children €X","booking":"website.de","bookingUrl":"https://exact-url-from-results","needsBooking":false,"tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
 
 Rules:
+- IMPORTANT: skip any activity whose dates fall entirely outside ${todayStr}–${cutoffStr}
 - bookingUrl must be the exact URL from the search results — do not invent URLs
-- If dates/times/price not found, use "siehe Website" / "see website"
+- If dates/times/price not found in snippet, use "siehe Website" / "see website"
 - needsBooking: true only if the snippet mentions Anmeldung or reservation required
 - Translate name and description into Chinese for nameZh and description fields
 - Choose diverse activity types`;
