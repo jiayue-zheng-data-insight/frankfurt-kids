@@ -58,7 +58,9 @@ export default async function handler(req, res) {
   try {
 
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
     const cutoff = new Date(today);
     cutoff.setDate(cutoff.getDate() + 30);
     const cutoffStr = cutoff.toISOString().split('T')[0];
@@ -93,11 +95,11 @@ export default async function handler(req, res) {
       .map((r, i) => `[${i + 1}] Title: ${r.title}\nSnippet: ${r.snippet}\nURL: ${r.url}`)
       .join('\n\n');
 
-    const prompt = `You are helping a Chinese family in Frankfurt find children's activities for ${dateRange}.
+    const prompt = `You are helping a Chinese family in Frankfurt find children's activities.
 
-Today is ${todayStr}. Only include activities that are happening between ${todayStr} and ${cutoffStr} (the next 30 days). Skip anything that starts after ${cutoffStr} or has already ended.
+Today is ${tomorrowStr === cutoffStr ? tomorrowStr : tomorrowStr} (tomorrow). Only include activities happening between ${tomorrowStr} and ${cutoffStr}. Skip activities that start after ${cutoffStr} or ended before ${tomorrowStr}.
 
-Below are real Google search results. Extract up to 6 distinct activities that fall within that date window.
+Below are real Google search results. Extract up to 6 distinct activities within that date window.
 
 SEARCH RESULTS:
 ${resultsText}
@@ -105,14 +107,17 @@ ${resultsText}
 Output a JSON array of up to 6 objects. Start with [ end with ]. Raw JSON only.
 
 Each object must have exactly these fields:
-{"id":1,"emoji":"🦁","name":"Event name","nameZh":"活动中文名","description":"一两句中文介绍。","descriptionEn":"One or two sentences in English.","location":"Venue, Frankfurt","dates":"Datum DE","datesEn":"Date EN","time":"HH:MM-HH:MM","price":"Erw. €X / Kinder €X","priceEn":"Adults €X / Children €X","booking":"website.de","bookingUrl":"https://exact-url-from-results","needsBooking":false,"tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
+{"id":1,"emoji":"🦁","name":"Event name in original language","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English describing the activity.","location":"Venue, Frankfurt","dates":"Datum DE","datesEn":"Date EN","time":"HH:MM-HH:MM","price":"Erw. €X / Kinder €X","priceEn":"Adults €X / Children €X","booking":"website.de","bookingUrl":"https://exact-url-from-results","needsBooking":false,"tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
 
 Rules:
-- IMPORTANT: skip any activity whose dates fall entirely outside ${todayStr}–${cutoffStr}
+- IMPORTANT: skip any activity whose dates fall entirely outside ${tomorrowStr}–${cutoffStr}
 - bookingUrl must be the exact URL from the search results — do not invent URLs
+- description MUST be written in Chinese (中文) — never leave German or English text in this field
+- descriptionEn MUST be written in English — never leave German text in this field
+- nameZh MUST be a Chinese translation of the event name
+- tags should be in English, tagsZh should be the same tags translated to Chinese
 - If dates/times/price not found in snippet, use "siehe Website" / "see website"
-- needsBooking: true only if the snippet mentions Anmeldung or reservation required
-- Translate name and description into Chinese for nameZh and description fields
+- needsBooking: true only if snippet mentions Anmeldung or reservation required
 - Choose diverse activity types`;
 
     const raw = await callClaude(prompt);
