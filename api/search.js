@@ -1,8 +1,8 @@
-async function serperSearch(query) {
+async function serperSearch(query, num = 10) {
   const res = await fetch('https://google.serper.dev/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-KEY': process.env.SERPER_API_KEY },
-    body: JSON.stringify({ q: query, gl: 'de', hl: 'de', num: 10 })
+    body: JSON.stringify({ q: query, gl: 'de', hl: 'de', num })
   });
   const body = await res.text();
   if (!res.ok) {
@@ -11,32 +11,12 @@ async function serperSearch(query) {
   }
   const data = JSON.parse(body);
   const organic = data.organic || [];
-  console.log(`[Serper] query="${query}" → ${organic.length} results`);
+  console.log(`[Serper] "${query}" → ${organic.length} results`);
   organic.forEach(r => console.log(`  • ${r.link}`));
   return organic.map(r => ({ title: r.title, snippet: r.snippet, url: r.link }));
 }
 
-// Extract event detail links from HTML (relative → absolute)
-function extractEventLinks(html, baseUrl) {
-  const base = new URL(baseUrl);
-  const hrefs = [];
-  const re = /href=["']([^"']+)["']/gi;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    try {
-      const abs = new URL(m[1], base).href;
-      if (abs.startsWith(base.origin) && abs !== baseUrl) {
-        const path = new URL(abs).pathname;
-        if (path.length > 1 && /event|veranstaltung|show|detail|programm|kurs|workshop|ausstellung/i.test(path)) {
-          hrefs.push(abs);
-        }
-      }
-    } catch {}
-  }
-  return [...new Set(hrefs)].slice(0, 15);
-}
-
-async function fetchPage(url, timeoutMs = 5000) {
+async function fetchPageText(url, timeoutMs = 5000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -47,7 +27,6 @@ async function fetchPage(url, timeoutMs = 5000) {
     clearTimeout(timer);
     if (!res.ok) { console.warn(`[Fetch] ${url} → ${res.status}`); return null; }
     const html = await res.text();
-    const eventLinks = extractEventLinks(html, url);
     const text = html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -55,9 +34,8 @@ async function fetchPage(url, timeoutMs = 5000) {
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 3000);
-    console.log(`[Fetch] ${url} → ${text.length} chars, ${eventLinks.length} event links`);
-    eventLinks.forEach(l => console.log(`  ↳ ${l}`));
-    return { text, eventLinks };
+    console.log(`[Fetch] ${url} → ${text.length} chars`);
+    return text;
   } catch (e) {
     clearTimeout(timer);
     console.warn(`[Fetch] ${url} → ${e.message}`);
@@ -94,6 +72,14 @@ function parseActivities(raw) {
   return JSON.parse(raw.slice(start, end + 1));
 }
 
+// Returns true if a URL looks like a specific event page, not a generic listing
+function isDetailUrl(url) {
+  try {
+    const path = new URL(url).pathname;
+    return path.split('/').filter(Boolean).length >= 2;
+  } catch { return false; }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -110,79 +96,57 @@ export default async function handler(req, res) {
     cutoff.setDate(cutoff.getDate() + 30);
     const cutoffStr = cutoff.toISOString().split('T')[0];
 
-    const curMonthDE  = today.toLocaleString('de-DE', { month: 'long' });
-    const curMonthEN  = today.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    const curMonthDE   = today.toLocaleString('de-DE', { month: 'long' });
+    const curMonthEN   = today.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     const nextMonthObj = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-    const nextMonthDE = nextMonthObj.toLocaleString('de-DE', { month: 'long' });
-    const nextMonthEN = nextMonthObj.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
-    const dateRange   = `${curMonthEN} and ${nextMonthEN}`;
+    const nextMonthDE  = nextMonthObj.toLocaleString('de-DE', { month: 'long' });
+    const nextMonthEN  = nextMonthObj.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    const dateRange    = `${curMonthEN} and ${nextMonthEN}`;
 
-    // Step 1: Serper — two month-specific queries, Frankfurt only
-    const rawResults = await Promise.all([
+    // Step 1: Four Serper queries in parallel
+    // Mix broad queries with ones that target event detail pages (inurl)
+    const allRaw = await Promise.all([
       serperSearch(`Kinderveranstaltungen Frankfurt am Main ${curMonthDE} 2026`),
-      serperSearch(`Kinderveranstaltungen Frankfurt am Main ${nextMonthDE} 2026`)
+      serperSearch(`Kinderveranstaltungen Frankfurt am Main ${nextMonthDE} 2026`),
+      serperSearch(`Frankfurt Kinder Veranstaltung ${curMonthDE} ${nextMonthDE} 2026 inurl:event OR inurl:veranstaltung`),
+      serperSearch(`Frankfurt Kinder Ausflug Programm ${curMonthDE} ${nextMonthDE} 2026 Ticket`)
     ]).then(r => r.flat());
 
+    // Deduplicate; sort so detail-looking URLs come first
     const seen = new Set();
-    const uniqueResults = rawResults.filter(r => {
-      if (seen.has(r.url)) return false;
-      seen.add(r.url);
-      return true;
-    });
+    const uniqueResults = allRaw
+      .filter(r => { if (seen.has(r.url)) return false; seen.add(r.url); return true; })
+      .sort((a, b) => (isDetailUrl(b.url) ? 1 : 0) - (isDetailUrl(a.url) ? 1 : 0));
 
-    console.log(`[Search] ${uniqueResults.length} unique URLs from Serper`);
+    console.log(`[Search] ${uniqueResults.length} unique URLs (${uniqueResults.filter(r => isDetailUrl(r.url)).length} detail-looking)`);
     if (uniqueResults.length === 0) {
-      return res.status(502).json({ error: 'Serper returned no results. Check SERPER_API_KEY in Vercel.' });
+      return res.status(502).json({ error: 'Serper returned no results. Check SERPER_API_KEY.' });
     }
 
-    // Step 2: Fetch listing pages to discover event detail links
-    const listingPages = await Promise.all(
-      uniqueResults.slice(0, 6).map(async r => {
-        const result = await fetchPage(r.url, 5000);
-        return { url: r.url, title: r.title, ...(result || { text: null, eventLinks: [] }) };
+    // Step 2: Fetch pages in parallel (top 10, prefer detail URLs)
+    const fetched = await Promise.all(
+      uniqueResults.slice(0, 10).map(async r => {
+        const text = await fetchPageText(r.url);
+        return text ? { url: r.url, snippet: r.snippet, text } : null;
       })
     );
-    const fetchedListings = listingPages.filter(p => p.text);
-    const allEventLinks = [...new Set(fetchedListings.flatMap(p => p.eventLinks || []))];
-    console.log(`[Search] ${allEventLinks.length} event detail links discovered`);
+    const pages = fetched.filter(Boolean);
+    console.log(`[Search] ${pages.length}/10 pages fetched`);
 
-    // Step 3: Fetch the actual event detail pages
-    const detailPages = await Promise.all(
-      allEventLinks.slice(0, 10).map(async url => {
-        const result = await fetchPage(url, 4000);
-        return result ? { url, text: result.text } : null;
-      })
-    );
-    const fetchedDetails = detailPages.filter(Boolean);
-    console.log(`[Search] ${fetchedDetails.length} detail pages fetched`);
-
-    // Build context: prefer detail pages; fall back to listing pages
-    let context;
-    if (fetchedDetails.length >= 3) {
-      context = fetchedDetails
-        .map((p, i) => `[${i + 1}] EVENT PAGE URL: ${p.url}\n${p.text}`)
-        .join('\n\n---\n\n');
-    } else {
-      // Fall back: listing page text + event links listed explicitly
-      context = fetchedListings
-        .map((p, i) => {
-          const links = (p.eventLinks || []).length > 0
-            ? `\nEvent detail links on this page:\n${p.eventLinks.map(l => `  - ${l}`).join('\n')}`
-            : '';
-          return `[${i + 1}] PAGE URL: ${p.url}${links}\n\nPAGE TEXT:\n${p.text}`;
-        })
-        .join('\n\n---\n\n');
-    }
-
-    const usingDetailPages = fetchedDetails.length >= 3;
+    // Build context — if page text available use it, else fall back to snippet
+    const context = uniqueResults.slice(0, 10).map((r, i) => {
+      const page = pages.find(p => p.url === r.url);
+      const content = page ? page.text : `Title: ${r.title}\n${r.snippet}`;
+      return `[${i + 1}] URL: ${r.url}\n${content}`;
+    }).join('\n\n---\n\n');
 
     const prompt = `You are helping a Chinese family in Frankfurt find children's activities for ${dateRange}.
 
-Today is ${tomorrowStr}. Include activities happening between ${tomorrowStr} and ${cutoffStr}. Only skip activities that clearly ended before ${tomorrowStr}.
+Today is ${tomorrowStr}. Include activities happening between ${tomorrowStr} and ${cutoffStr}. Skip only activities that clearly ended before ${tomorrowStr}.
 
-IMPORTANT: Only include activities located in Frankfurt am Main. Skip activities in Mainz, Wiesbaden, Darmstadt, or other cities.
+IMPORTANT: Only include activities in Frankfurt am Main. Skip any activity in Mainz, Wiesbaden, Darmstadt, or other cities.
 
-Below is ${usingDetailPages ? 'content from actual event detail pages' : 'content from event listing pages'}. Extract up to 10 distinct children's activities in Frankfurt am Main, reading all info directly from the page text.
+Below are real web pages about Frankfurt children's events. Extract up to 10 distinct activities.
 
 PAGE CONTENTS:
 ${context}
@@ -190,17 +154,17 @@ ${context}
 Output a JSON array of up to 10 objects. Start with [ end with ]. Raw JSON only.
 
 Each object must have exactly these fields:
-{"id":1,"emoji":"🦁","name":"Event name from page","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English.","location":"Exact venue name and address from page","dates":"Datum from page","datesEn":"Date in English","time":"HH:MM-HH:MM or see website","price":"exact price from page or siehe Website","priceEn":"exact price in English or see website","booking":"domain.de","bookingUrl":"https://exact-event-page-url","bookingType":"advance","tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
+{"id":1,"emoji":"🦁","name":"Event name","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English.","location":"Exact venue and address from page","dates":"Datum from page","datesEn":"Date in English","time":"HH:MM-HH:MM or see website","price":"price from page or siehe Website","priceEn":"price in English or see website","booking":"domain.de","bookingUrl":"https://exact-url-from-list-above","bookingType":"advance","tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
 
 Rules:
-- location and bookingUrl must come from the page — do not invent them
-- bookingUrl must be the EVENT PAGE URL (the [N] URL at the top of each section), not a homepage
-- description MUST be in Chinese; descriptionEn MUST be in English; never leave German text in these fields
-- nameZh must be a Chinese translation of the event name
-- tags in English, tagsZh same tags in Chinese
-- bookingType: "advance" (Anmeldung/online buchen) | "onsite" (Tageskasse/Eintritt kaufen) | "free" (kostenlos/freier Eintritt) — default "onsite"
+- bookingUrl MUST be the exact [N] URL from the list above for that activity — do not use homepage-level URLs
+- If the URL is a listing page (e.g. /events or /veranstaltungen without a specific event slug), try to find a more specific link mentioned in the page text; otherwise use the URL as-is
+- description in Chinese only; descriptionEn in English only; never leave German text in these fields
+- nameZh = Chinese translation of name
+- tags in English, tagsZh same in Chinese
+- bookingType: "advance" (Anmeldung/online buchen) | "onsite" (Tageskasse/Eintritt) | "free" (kostenlos/freier Eintritt) — default "onsite"
 - Skip activities not in Frankfurt am Main
-- Skip activities that clearly ended before ${tomorrowStr}`;
+- Skip activities clearly ended before ${tomorrowStr}`;
 
     const raw = await callClaude(prompt);
     const activities = parseActivities(raw);
