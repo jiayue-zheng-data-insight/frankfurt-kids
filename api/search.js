@@ -117,7 +117,7 @@ Rules:
 - nameZh MUST be a Chinese translation of the event name
 - tags should be in English, tagsZh should be the same tags translated to Chinese
 - If dates/times/price not found in snippet, use "siehe Website" / "see website"
-- needsBooking: true only if snippet mentions Anmeldung or reservation required
+- needsBooking: default to true unless the snippet explicitly states free entry, no registration needed, or walk-in welcome (e.g. "ohne Anmeldung", "freier Eintritt", "keine Reservierung"); when in doubt, set true
 - Choose diverse activity types`;
 
     const raw = await callClaude(prompt);
