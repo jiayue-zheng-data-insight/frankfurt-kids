@@ -193,6 +193,7 @@ input[type=file]{display:none}
     <div class="notice n-info" id="disc-notice"></div>
     <div class="sec-title" id="disc-title">全部活动（点击展开详情）</div>
     <div id="act-list"></div>
+    <button class="btn btn-w" id="load-more-btn" style="margin-top:4px;display:none" onclick="loadMoreActs()"></button>
     <button class="btn btn-w" style="margin-top:4px" onclick="goTab('plan')" id="go-plan-btn">📋 查看已选计划 ↗</button>
   </div>
   <div id="disc-empty" style="display:none">
@@ -260,6 +261,7 @@ let pref = 'sun';
 let calMo = new Date();
 let openId = null;
 let activitiesLoaded = false;
+let visibleCount = 6;
 
 // ── TRANSLATIONS ──
 const T = {
@@ -285,7 +287,7 @@ const T = {
     website:'官方网站', visitSite:'访问官网', descLabel:'活动介绍',
     scanSuccess:'✓ 识别成功！信息已自动补全',
     scanAddBtn:'➕ 加入活动列表', scanAdded:'✅ 已加入活动列表！',
-    goDiscover:'去活动发现 ↗',
+    goDiscover:'去活动发现 ↗', loadMore:'显示更多活动 ↓', allLoaded:'已显示全部活动',
     bookNeeded:'需预约', bookOnsiteShort:'现场购票', bookFree:'无需预订',
     'fl-name':'活动名称', 'fl-loc':'地点', 'fl-dates':'日期时间', 'fl-price':'票价', 'fl-book':'订票方式', 'fl-adv':'是否需提前预订',
   },
@@ -311,7 +313,7 @@ const T = {
     website:'Official website', visitSite:'Visit site', descLabel:'About this activity',
     scanSuccess:'✓ Recognised! Details auto-filled',
     scanAddBtn:'➕ Add to activity list', scanAdded:'✅ Added to activity list!',
-    goDiscover:'Go to Discover ↗',
+    goDiscover:'Go to Discover ↗', loadMore:'Show more activities ↓', allLoaded:'All activities shown',
     bookNeeded:'Book ahead', bookOnsiteShort:'Buy at door', bookFree:'Walk-in',
     'fl-name':'Activity name', 'fl-loc':'Location', 'fl-dates':'Date & time', 'fl-price':'Price', 'fl-book':'Booking', 'fl-adv':'Pre-booking required?',
   }
@@ -493,6 +495,7 @@ function loadActivities() {
       const scanned = activities.filter(a => a.scan);
       activities = [...scanned, ...data.activities];
       activitiesLoaded = true;
+      visibleCount = 6;
       const notice = document.getElementById('disc-notice');
       if (notice) notice.textContent = `🔍 ${lang === 'zh' ? '已搜索法兰克福近期儿童活动，共找到' : 'Found'} ${data.activities.length} ${lang === 'zh' ? '项' : 'events in Frankfurt'}`;
       document.getElementById('disc-content').style.display = 'block';
@@ -509,7 +512,19 @@ function loadActivities() {
 
 function renderActs() {
   if (!activitiesLoaded) return;
-  document.getElementById('act-list').innerHTML = activities.map(a => actCardHTML(a)).join('');
+  const visible = activities.slice(0, visibleCount);
+  document.getElementById('act-list').innerHTML = visible.map(a => actCardHTML(a)).join('');
+  const btn = document.getElementById('load-more-btn');
+  if (btn) {
+    const hasMore = visibleCount < activities.length;
+    btn.style.display = hasMore ? 'block' : 'none';
+    btn.textContent = hasMore ? t('loadMore') : t('allLoaded');
+  }
+}
+
+function loadMoreActs() {
+  visibleCount += 6;
+  renderActs();
 }
 
 function actCardHTML(a) {
