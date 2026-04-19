@@ -66,6 +66,8 @@ input[type=file]{display:none}
 .act-card.open{border-color:#378ADD;border-width:1.5px}
 .act-card.nb{border-left:4px solid #E53935}
 .act-card.nb.open{border-color:#378ADD;border-left-color:#E53935;border-left-width:4px}
+.act-card.ob{border-left:4px solid #E65100}
+.act-card.ob.open{border-color:#378ADD;border-left-color:#E65100;border-left-width:4px}
 .act-summary{padding:13px;cursor:pointer;display:flex;align-items:flex-start;gap:10px}
 .act-ic{font-size:24px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:#f5f5f5;border-radius:10px;flex-shrink:0}
 .act-info{flex:1;min-width:0}
@@ -95,9 +97,11 @@ input[type=file]{display:none}
 .ev-item{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:10px;margin-bottom:8px;cursor:pointer}
 .ev-item.bi{background:#E3F2FD}
 .ev-item.ri{background:#FFEBEE}
+.ev-item.oi{background:#FFF3E0}
 .ev-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .ev-dot.b{background:#185FA5}
 .ev-dot.r{background:#E53935}
+.ev-dot.o{background:#E65100}
 .ev-dets{flex:1;min-width:0}
 .ev-name{font-size:13px;font-weight:500}
 .ev-date{font-size:11px;color:#888;margin-top:1px}
@@ -273,16 +277,16 @@ const T = {
     'plan-title':'已安排活动', 'pref-title':'周末偏好设置', 'pref-sub':'每个周末安排哪天？',
     'pr-sat':'仅周六', 'pr-sun':'仅周日', 'pr-both':'两天都行',
     'sync-title':'同步到日历', 'sync-g-btn':'📅 Google 日历', 'sync-a-btn':'🍎 Apple 日历',
-    'cal-ev-title':'本月活动', 'cal-legend':'🔴 红色 = 需提前订票   🔵 蓝色 = 无需预订',
+    'cal-ev-title':'本月活动', 'cal-legend':'🔴 需提前预约   🟠 现场购票   🔵 无需预订',
     days:['一','二','三','四','五','六','日'],
-    needsBooking:'需提前订票', noBooking:'无需预订', fromScan:'📷 扫描',
+    needsBooking:'需提前预约', bookOnsite:'可现场购票', noBooking:'无需预订', fromScan:'📷 扫描',
     addPlan:'➕ 加入计划', removeBtn:'✓ 已选 · 取消', collapseBtn:'收起',
-    bookWarn:'⚠ 此活动需提前订票，请尽早安排', bookOk:'✓ 无需预订，可直接前往',
+    bookWarn:'⚠ 此活动需提前预约，请尽早安排', bookWarnOnsite:'🟡 此活动需购票，可现场购买', bookOk:'✓ 无需预订，可直接前往',
     website:'官方网站', visitSite:'访问官网', descLabel:'活动介绍',
     scanSuccess:'✓ 识别成功！信息已自动补全',
     scanAddBtn:'➕ 加入活动列表', scanAdded:'✅ 已加入活动列表！',
     goDiscover:'去活动发现 ↗',
-    bookNeeded:'需订票', bookFree:'无需预订',
+    bookNeeded:'需预约', bookOnsiteShort:'现场购票', bookFree:'无需预订',
     'fl-name':'活动名称', 'fl-loc':'地点', 'fl-dates':'日期时间', 'fl-price':'票价', 'fl-book':'订票方式', 'fl-adv':'是否需提前预订',
   },
   en: {
@@ -299,20 +303,27 @@ const T = {
     'plan-title':'Scheduled activities', 'pref-title':'Weekend preferences', 'pref-sub':'Which day(s) per weekend?',
     'pr-sat':'Sat only', 'pr-sun':'Sun only', 'pr-both':'Either day',
     'sync-title':'Sync to calendar', 'sync-g-btn':'📅 Google Calendar', 'sync-a-btn':'🍎 Apple Calendar',
-    'cal-ev-title':'This month', 'cal-legend':'🔴 Red = pre-booking required   🔵 Blue = walk-in ok',
+    'cal-ev-title':'This month', 'cal-legend':'🔴 Pre-booking required   🟠 Tickets at door   🔵 Walk-in ok',
     days:['Mo','Tu','We','Th','Fr','Sa','Su'],
-    needsBooking:'Pre-booking required', noBooking:'No booking needed', fromScan:'📷 Scanned',
+    needsBooking:'Pre-booking required', bookOnsite:'Tickets at door', noBooking:'No booking needed', fromScan:'📷 Scanned',
     addPlan:'➕ Add to plan', removeBtn:'✓ Selected · Remove', collapseBtn:'Collapse',
-    bookWarn:'⚠ Pre-booking required — book soon', bookOk:'✓ Walk-in welcome',
+    bookWarn:'⚠ Pre-booking required — book soon', bookWarnOnsite:'🟡 Tickets available at the door', bookOk:'✓ Walk-in welcome',
     website:'Official website', visitSite:'Visit site', descLabel:'About this activity',
     scanSuccess:'✓ Recognised! Details auto-filled',
     scanAddBtn:'➕ Add to activity list', scanAdded:'✅ Added to activity list!',
     goDiscover:'Go to Discover ↗',
-    bookNeeded:'Book', bookFree:'Walk-in',
+    bookNeeded:'Book ahead', bookOnsiteShort:'Buy at door', bookFree:'Walk-in',
     'fl-name':'Activity name', 'fl-loc':'Location', 'fl-dates':'Date & time', 'fl-price':'Price', 'fl-book':'Booking', 'fl-adv':'Pre-booking required?',
   }
 };
 const t = k => T[lang][k] || k;
+
+function bookingInfo(a) {
+  const bt = a.bookingType || (a.needsBooking ? 'advance' : 'free');
+  if (bt === 'advance') return { cardCls:'nb', itemCls:'ri', dotCls:'r', badgeCls:'b-red',   icon:'🔴', shortKey:'bookNeeded',     noticeKey:'bookWarn'        };
+  if (bt === 'onsite')  return { cardCls:'ob', itemCls:'oi', dotCls:'o', badgeCls:'b-amber', icon:'🟡', shortKey:'bookOnsiteShort', noticeKey:'bookWarnOnsite'  };
+  return                       { cardCls:'',   itemCls:'bi', dotCls:'b', badgeCls:'b-green', icon:'🟢', shortKey:'bookFree',        noticeKey:'bookOk'          };
+}
 
 // ── LANGUAGE ──
 function setLang(l) {
@@ -413,9 +424,9 @@ function showScanResult(a) {
       <div class="fval">${a.booking || '—'}</div>
       <div class="flabel">${t('fl-adv') || '是否需要提前订票'}</div>
       <div class="fval">
-        ${a.needsBooking
-          ? '<span class="badge b-amber">⚠ 建议提前预订</span>'
-          : '<span class="badge b-green">✓ 无需提前预订</span>'}
+        ${(bt => bt==='advance' ? '<span class="badge b-red">🔴 需提前预约</span>'
+                               : bt==='onsite'  ? '<span class="badge b-amber">🟡 可现场购票</span>'
+                                                : '<span class="badge b-green">🟢 无需预订</span>')(a.bookingType||(a.needsBooking?'advance':'free'))}
       </div>
     </div>
     <button class="btn btn-p btn-w" onclick="addScannedActivity(${JSON.stringify(a).replace(/"/g,'&quot;')})">${t('scanAddBtn')}</button>
@@ -511,15 +522,16 @@ function actCardHTML(a) {
   const price = lang === 'zh' ? a.price : (a.priceEn || a.price);
   const tags = lang === 'zh' ? (a.tagsZh || a.tags || []) : (a.tags || []);
 
+  const bi = bookingInfo(a);
   return `<div class="act-wrap">
-    <div class="act-card ${isSel?'sel':''} ${a.needsBooking?'nb':''}" id="card-${a.id}">
+    <div class="act-card ${isSel?'sel':''} ${bi.cardCls}" id="card-${a.id}">
       <div class="act-summary" onclick="toggleOpen(${a.id})">
         <div class="act-ic">${a.emoji || '🎯'}</div>
         <div class="act-info">
           <div class="act-name">${name} ${a.scan?`<span class="badge b-blue">${t('fromScan')}</span>`:''}</div>
           <div class="act-meta">📍 ${a.location || ''}</div>
           <div class="act-meta">🗓 ${dates || ''} ${time ? '· '+time : ''}</div>
-          <div class="act-meta" style="color:${a.needsBooking?'#C62828':'#2E7D32'}">${a.needsBooking ? '🔴 '+t('needsBooking') : '🟢 '+t('noBooking')}</div>
+          <div class="act-meta">${bi.icon} ${t(bi.shortKey)}</div>
           <div class="act-tags">
             ${tags.slice(0,3).map(tg=>`<span class="badge b-gray">${tg}</span>`).join('')}
             ${a.ageRange ? `<span class="badge b-gray">${a.ageRange}</span>` : ''}
@@ -532,7 +544,7 @@ function actCardHTML(a) {
         </div>
       </div>
       <div class="act-detail ${isOpen?'open':''}">
-        <div class="notice ${a.needsBooking?'n-warn':'n-ok'}" style="margin-bottom:10px">${a.needsBooking?t('bookWarn'):t('bookOk')}</div>
+        <div class="notice ${bi.cardCls==='nb'?'n-warn':bi.cardCls==='ob'?'n-warn':'n-ok'}" style="margin-bottom:10px">${t(bi.noticeKey)}</div>
         ${desc ? `<div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">${t('descLabel')}</div><div class="detail-desc">${desc}</div>` : ''}
         <div class="detail-row"><div class="detail-icon">📍</div><div><div class="detail-label">${t('fl-loc')||'地点'}</div><div class="detail-text">${a.location||''}</div></div></div>
         <div class="detail-row"><div class="detail-icon">🗓</div><div><div class="detail-label">${t('fl-dates')||'时间'}</div><div class="detail-text">${dates||''} ${time ? '· '+time : ''}</div></div></div>
@@ -599,16 +611,19 @@ function renderPlan() {
   const body = document.getElementById('plan-body');
   if (scheduled.length === 0) { empty.style.display='block'; body.style.display='none'; return; }
   empty.style.display = 'none'; body.style.display = 'block';
-  document.getElementById('planned').innerHTML = scheduled.map(ev => `
-    <div class="ev-item ${ev.act.needsBooking?'ri':'bi'}">
-      <div class="ev-dot ${ev.act.needsBooking?'r':'b'}"></div>
+  document.getElementById('planned').innerHTML = scheduled.map(ev => {
+    const bi = bookingInfo(ev.act);
+    return `
+    <div class="ev-item ${bi.itemCls}">
+      <div class="ev-dot ${bi.dotCls}"></div>
       <div class="ev-dets">
         <div class="ev-name">${ev.act.emoji||'🎯'} ${lang==='zh'?(ev.act.nameZh||ev.act.name):ev.act.name}</div>
         <div class="ev-date">${fmtDate(ev.date)} · ${ev.act.time||''}</div>
-        ${ev.act.needsBooking ? `<div style="font-size:10px;color:#C62828;margin-top:2px">⚠ ${t('needsBooking')}</div>` : ''}
+        ${bi.cardCls!=='' ? `<div style="font-size:10px;margin-top:2px">${bi.icon} ${t(bi.shortKey)}</div>` : ''}
       </div>
-      <span class="badge ${ev.act.needsBooking?'b-red':'b-green'}">${ev.act.needsBooking?t('bookNeeded'):t('bookFree')}</span>
-    </div>`).join('');
+      <span class="badge ${bi.badgeCls}">${t(bi.shortKey)}</span>
+    </div>`;
+  }).join('');
   applyLang();
 }
 
@@ -633,7 +648,9 @@ function exportGoogleCalendar() {
     const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
     const name = encodeURIComponent((lang==='zh'?(ev.act.nameZh||ev.act.name):ev.act.name));
     const loc = encodeURIComponent(ev.act.location||'Frankfurt');
-    const details = encodeURIComponent((lang==='zh'?(ev.act.description||''):(ev.act.descriptionEn||'')) + (ev.act.needsBooking ? (lang==='zh'?' ⚠ 请提前订票':' ⚠ Pre-booking required') : ''));
+    const bi = bookingInfo(ev.act);
+    const bookNote = bi.cardCls==='nb' ? (lang==='zh'?' ⚠ 请提前预约':' ⚠ Pre-booking required') : bi.cardCls==='ob' ? (lang==='zh'?' 🟡 可现场购票':' 🟡 Tickets at door') : '';
+    const details = encodeURIComponent((lang==='zh'?(ev.act.description||''):(ev.act.descriptionEn||'')) + bookNote);
     const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${name}&dates=${dateStr}/${dateStr}&location=${loc}&details=${details}`;
     window.open(url, '_blank');
   });
@@ -649,7 +666,7 @@ function exportAppleCalendar() {
     const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
     const name = (lang==='zh'?(ev.act.nameZh||ev.act.name):ev.act.name);
     const desc = (lang==='zh'?(ev.act.description||''):(ev.act.descriptionEn||''));
-    const alarm = ev.act.needsBooking ? '\nBEGIN:VALARM\nTRIGGER:-P3D\nACTION:DISPLAY\nDESCRIPTION:请提前订票 / Pre-booking required\nEND:VALARM' : '';
+    const alarm = (a => a.bookingType==='advance'||(a.needsBooking&&!a.bookingType) ? '\nBEGIN:VALARM\nTRIGGER:-P3D\nACTION:DISPLAY\nDESCRIPTION:请提前预约 / Pre-booking required\nEND:VALARM' : '')(ev.act);
     ics += `BEGIN:VEVENT\nDTSTART;VALUE=DATE:${dateStr}\nDTEND;VALUE=DATE:${dateStr}\nSUMMARY:${name}\nLOCATION:${ev.act.location||''}\nDESCRIPTION:${desc.replace(/\n/g,'\\n')}${alarm}\nEND:VEVENT\n`;
   });
   ics += 'END:VCALENDAR';
@@ -670,7 +687,7 @@ function renderCal() {
   const dim = new Date(calMo.getFullYear(), calMo.getMonth()+1, 0).getDate();
   const today = new Date(); today.setHours(0,0,0,0);
   const evMap = {};
-  scheduled.forEach(ev => { const k=`${ev.date.getMonth()}-${ev.date.getDate()}-${ev.date.getFullYear()}`; evMap[k] = ev.act.needsBooking?'r':'b'; });
+  scheduled.forEach(ev => { const k=`${ev.date.getMonth()}-${ev.date.getDate()}-${ev.date.getFullYear()}`; evMap[k] = bookingInfo(ev.act).dotCls; });
   let html = '';
   for (let i=0;i<fd;i++) html += '<div class="cal-d om"></div>';
   for (let d=1;d<=dim;d++) {
@@ -680,21 +697,25 @@ function renderCal() {
     let cls = 'cal-d';
     if (isT) cls += ' td';
     else if (ev==='r') cls += ' hbk';
+    else if (ev==='o') cls += ' hbk';
     else if (ev==='b') cls += ' hev';
     else if (we) cls += ' we';
     html += `<div class="${cls}">${d}${ev?`<div class="dot dot-${ev}"></div>`:''}</div>`;
   }
   document.getElementById('cal-days').innerHTML = html;
   const mevs = scheduled.filter(ev => ev.date.getMonth()===calMo.getMonth() && ev.date.getFullYear()===calMo.getFullYear());
-  document.getElementById('cal-ev-list').innerHTML = mevs.length ? mevs.map(ev=>`
-    <div class="ev-item ${ev.act.needsBooking?'ri':'bi'}">
-      <div class="ev-dot ${ev.act.needsBooking?'r':'b'}"></div>
+  document.getElementById('cal-ev-list').innerHTML = mevs.length ? mevs.map(ev=>{
+    const bi = bookingInfo(ev.act);
+    return `
+    <div class="ev-item ${bi.itemCls}">
+      <div class="ev-dot ${bi.dotCls}"></div>
       <div class="ev-dets">
         <div class="ev-name">${ev.act.emoji||'🎯'} ${lang==='zh'?(ev.act.nameZh||ev.act.name):ev.act.name}</div>
         <div class="ev-date">${fmtDate(ev.date)}</div>
       </div>
-      <span class="badge ${ev.act.needsBooking?'b-red':'b-green'}">${ev.act.needsBooking?t('bookNeeded'):t('bookFree')}</span>
-    </div>`).join('') : `<div class="empty" style="padding:16px 0;font-size:12px">${lang==='zh'?'本月暂无安排':'No events this month'}</div>`;
+      <span class="badge ${bi.badgeCls}">${t(bi.shortKey)}</span>
+    </div>`;
+  }).join('') : `<div class="empty" style="padding:16px 0;font-size:12px">${lang==='zh'?'本月暂无安排':'No events this month'}</div>`;
   applyLang();
 }
 

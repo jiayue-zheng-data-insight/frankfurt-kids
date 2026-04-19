@@ -107,7 +107,7 @@ ${resultsText}
 Output a JSON array of up to 6 objects. Start with [ end with ]. Raw JSON only.
 
 Each object must have exactly these fields:
-{"id":1,"emoji":"🦁","name":"Event name in original language","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English describing the activity.","location":"Venue, Frankfurt","dates":"Datum DE","datesEn":"Date EN","time":"HH:MM-HH:MM","price":"Erw. €X / Kinder €X","priceEn":"Adults €X / Children €X","booking":"website.de","bookingUrl":"https://exact-url-from-results","needsBooking":false,"tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
+{"id":1,"emoji":"🦁","name":"Event name in original language","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English describing the activity.","location":"Venue, Frankfurt","dates":"Datum DE","datesEn":"Date EN","time":"HH:MM-HH:MM","price":"Erw. €X / Kinder €X","priceEn":"Adults €X / Children €X","booking":"website.de","bookingUrl":"https://exact-url-from-results","bookingType":"advance","tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
 
 Rules:
 - IMPORTANT: skip any activity whose dates fall entirely outside ${tomorrowStr}–${cutoffStr}
@@ -117,7 +117,11 @@ Rules:
 - nameZh MUST be a Chinese translation of the event name
 - tags should be in English, tagsZh should be the same tags translated to Chinese
 - If dates/times/price not found in snippet, use "siehe Website" / "see website"
-- needsBooking: default to true unless the snippet explicitly states free entry, no registration needed, or walk-in welcome (e.g. "ohne Anmeldung", "freier Eintritt", "keine Reservierung"); when in doubt, set true
+- bookingType must be one of three values:
+    "advance" — must book/register online in advance (snippet mentions: Anmeldung erforderlich, Tickets kaufen, im Voraus buchen)
+    "onsite"  — tickets needed but can be bought at the door (snippet mentions: Tageskasse, Eintritt kaufen, Tickets vor Ort, Eintrittskarte)
+    "free"    — free entry or no ticket needed (snippet mentions: freier Eintritt, ohne Anmeldung, kostenlos, keine Reservierung)
+    When in doubt (snippet gives no booking info), use "onsite" as the safe default
 - Choose diverse activity types`;
 
     const raw = await callClaude(prompt);
