@@ -25,7 +25,6 @@ function extractEventLinks(html, baseUrl) {
   while ((m = re.exec(html)) !== null) {
     try {
       const abs = new URL(m[1], base).href;
-      // Keep only same-domain links that look like specific event/detail pages
       if (abs.startsWith(base.origin) && abs !== baseUrl) {
         const path = new URL(abs).pathname;
         if (path.length > 1 && /event|veranstaltung|show|detail|programm|kurs|workshop|ausstellung/i.test(path)) {
@@ -34,14 +33,12 @@ function extractEventLinks(html, baseUrl) {
       }
     } catch {}
   }
-  // Deduplicate
   return [...new Set(hrefs)].slice(0, 15);
 }
 
-// Fetch a page; return { text, eventLinks }
-async function fetchPage(url) {
+async function fetchPage(url, timeoutMs = 5000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       signal: controller.signal,
@@ -57,7 +54,7 @@ async function fetchPage(url) {
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
-      .slice(0, 4000);
+      .slice(0, 3000);
     console.log(`[Fetch] ${url} → ${text.length} chars, ${eventLinks.length} event links`);
     eventLinks.forEach(l => console.log(`  ↳ ${l}`));
     return { text, eventLinks };
@@ -78,7 +75,7 @@ async function callClaude(prompt) {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 3000,
+      max_tokens: 4096,
       system: 'You are a JSON API. Return only valid JSON, no explanations, no markdown.',
       messages: [{ role: 'user', content: prompt }]
     })
@@ -120,10 +117,10 @@ export default async function handler(req, res) {
     const nextMonthEN = nextMonthObj.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     const dateRange   = `${curMonthEN} and ${nextMonthEN}`;
 
-    // Step 1: Serper search — two queries in parallel
+    // Step 1: Serper — two month-specific queries, Frankfurt only
     const rawResults = await Promise.all([
-      serperSearch(`Kinderveranstaltungen Frankfurt ${curMonthDE} 2026`),
-      serperSearch(`Kinderveranstaltungen Frankfurt ${nextMonthDE} 2026`)
+      serperSearch(`Kinderveranstaltungen Frankfurt am Main ${curMonthDE} 2026`),
+      serperSearch(`Kinderveranstaltungen Frankfurt am Main ${nextMonthDE} 2026`)
     ]).then(r => r.flat());
 
     const seen = new Set();
@@ -138,56 +135,72 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'Serper returned no results. Check SERPER_API_KEY in Vercel.' });
     }
 
-    // Step 2: Fetch actual page content in parallel (top 8, 6s timeout each)
-    const pages = await Promise.all(
-      uniqueResults.slice(0, 8).map(async r => {
-        const result = await fetchPage(r.url);
+    // Step 2: Fetch listing pages to discover event detail links
+    const listingPages = await Promise.all(
+      uniqueResults.slice(0, 6).map(async r => {
+        const result = await fetchPage(r.url, 5000);
         return { url: r.url, title: r.title, ...(result || { text: null, eventLinks: [] }) };
       })
     );
-    const fetchedPages = pages.filter(p => p.text);
-    console.log(`[Search] ${fetchedPages.length}/${pages.length} pages fetched successfully`);
+    const fetchedListings = listingPages.filter(p => p.text);
+    const allEventLinks = [...new Set(fetchedListings.flatMap(p => p.eventLinks || []))];
+    console.log(`[Search] ${allEventLinks.length} event detail links discovered`);
 
-    // Collect all discovered event detail links across all fetched pages
-    const allEventLinks = [...new Set(fetchedPages.flatMap(p => p.eventLinks || []))];
-    console.log(`[Search] ${allEventLinks.length} total event detail links found`);
+    // Step 3: Fetch the actual event detail pages
+    const detailPages = await Promise.all(
+      allEventLinks.slice(0, 10).map(async url => {
+        const result = await fetchPage(url, 4000);
+        return result ? { url, text: result.text } : null;
+      })
+    );
+    const fetchedDetails = detailPages.filter(Boolean);
+    console.log(`[Search] ${fetchedDetails.length} detail pages fetched`);
 
-    // Build context: page text + discovered event-specific links
-    const context = fetchedPages.length > 0
-      ? fetchedPages.map((p, i) => {
+    // Build context: prefer detail pages; fall back to listing pages
+    let context;
+    if (fetchedDetails.length >= 3) {
+      context = fetchedDetails
+        .map((p, i) => `[${i + 1}] EVENT PAGE URL: ${p.url}\n${p.text}`)
+        .join('\n\n---\n\n');
+    } else {
+      // Fall back: listing page text + event links listed explicitly
+      context = fetchedListings
+        .map((p, i) => {
           const links = (p.eventLinks || []).length > 0
-            ? `\nEvent detail links found on this page:\n${p.eventLinks.map(l => `  - ${l}`).join('\n')}`
+            ? `\nEvent detail links on this page:\n${p.eventLinks.map(l => `  - ${l}`).join('\n')}`
             : '';
           return `[${i + 1}] PAGE URL: ${p.url}${links}\n\nPAGE TEXT:\n${p.text}`;
-        }).join('\n\n---\n\n')
-      : uniqueResults.map((r, i) => `[${i + 1}] URL: ${r.url}\nTitle: ${r.title}\n${r.snippet}`).join('\n\n');
+        })
+        .join('\n\n---\n\n');
+    }
+
+    const usingDetailPages = fetchedDetails.length >= 3;
 
     const prompt = `You are helping a Chinese family in Frankfurt find children's activities for ${dateRange}.
 
-Today is ${tomorrowStr}. Only include activities happening between ${tomorrowStr} and ${cutoffStr} (next 30 days). Skip anything outside that window.
+Today is ${tomorrowStr}. Include activities happening between ${tomorrowStr} and ${cutoffStr}. Only skip activities that clearly ended before ${tomorrowStr}.
 
-Below is the actual text content scraped from real event web pages. Extract up to 6 distinct children's activities, reading dates, location, price, and booking info directly from the page text.
+IMPORTANT: Only include activities located in Frankfurt am Main. Skip activities in Mainz, Wiesbaden, Darmstadt, or other cities.
+
+Below is ${usingDetailPages ? 'content from actual event detail pages' : 'content from event listing pages'}. Extract up to 10 distinct children's activities in Frankfurt am Main, reading all info directly from the page text.
 
 PAGE CONTENTS:
 ${context}
 
-Output a JSON array of up to 6 objects. Start with [ end with ]. Raw JSON only.
+Output a JSON array of up to 10 objects. Start with [ end with ]. Raw JSON only.
 
 Each object must have exactly these fields:
-{"id":1,"emoji":"🦁","name":"Event name from page","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English.","location":"Exact venue name and address from page","dates":"Datum from page","datesEn":"Date in English","time":"HH:MM-HH:MM or see website","price":"exact price from page or siehe Website","priceEn":"exact price in English or see website","booking":"domain.de","bookingUrl":"https://exact-page-url","bookingType":"advance","tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
+{"id":1,"emoji":"🦁","name":"Event name from page","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English.","location":"Exact venue name and address from page","dates":"Datum from page","datesEn":"Date in English","time":"HH:MM-HH:MM or see website","price":"exact price from page or siehe Website","priceEn":"exact price in English or see website","booking":"domain.de","bookingUrl":"https://exact-event-page-url","bookingType":"advance","tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
 
 Rules:
-- Read location, dates, price directly from the page text — do not guess
-- bookingUrl: use a specific event detail link from "Event detail links found on this page" when available — these are deeper links to the actual event page. Only fall back to the PAGE URL if no detail link matches the activity
-- description MUST be in Chinese; descriptionEn MUST be in English; never leave German in these fields
+- location and bookingUrl must come from the page — do not invent them
+- bookingUrl must be the EVENT PAGE URL (the [N] URL at the top of each section), not a homepage
+- description MUST be in Chinese; descriptionEn MUST be in English; never leave German text in these fields
 - nameZh must be a Chinese translation of the event name
 - tags in English, tagsZh same tags in Chinese
-- bookingType:
-    "advance" — page mentions: Anmeldung erforderlich, online buchen, Tickets kaufen, im Voraus
-    "onsite"  — page mentions: Tageskasse, Eintritt, Eintrittskarte, tickets at door
-    "free"    — page mentions: freier Eintritt, kostenlos, ohne Anmeldung, Eintritt frei
-    default to "onsite" when unclear
-- Skip activities outside ${tomorrowStr}–${cutoffStr}`;
+- bookingType: "advance" (Anmeldung/online buchen) | "onsite" (Tageskasse/Eintritt kaufen) | "free" (kostenlos/freier Eintritt) — default "onsite"
+- Skip activities not in Frankfurt am Main
+- Skip activities that clearly ended before ${tomorrowStr}`;
 
     const raw = await callClaude(prompt);
     const activities = parseActivities(raw);

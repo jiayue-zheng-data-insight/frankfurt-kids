@@ -461,7 +461,7 @@ function addScannedActivity(a) {
     priceEn: a.price || '',
     booking: a.booking || '',
     bookingUrl: a.booking ? 'https://' + a.booking.replace(/^https?:\/\//,'') : '#',
-    needsBooking: a.needsBooking || false,
+    bookingType: a.bookingType || (a.needsBooking ? 'advance' : 'onsite'),
     tags: a.tags || [],
     tagsZh: a.tags || [],
     scan: true
