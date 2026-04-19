@@ -50,22 +50,22 @@ export default async function handler(req, res) {
       .map((r, i) => `[${i + 1}] Title: ${r.title}\nSnippet: ${r.snippet}\nURL: ${r.url}`)
       .join('\n\n');
 
-    const prompt = `You are helping a Chinese family in Frankfurt discover children's activities for ${curMonthEN} and ${nextMonthEN} (the upcoming 30 days).
-
-Below are real Google search results about Frankfurt children's events. Extract exactly 6 distinct, specific activities from these results. Prefer results that mention concrete venues, dates, or times. Use the exact URL from the search result as bookingUrl.
+    const prompt = `Extract exactly 6 distinct children's activities in Frankfurt for ${curMonthEN} and ${nextMonthEN} from the search results below. Use the exact URL from the search result as bookingUrl.
 
 SEARCH RESULTS:
 ${resultsText}
 
-Return ONLY a JSON array of 6 activities, no other text:
-[{"id":1,"emoji":"🦁","name":"Event name in German/English","nameZh":"活动中文名","description":"一两句中文介绍。","descriptionEn":"One or two sentences in English.","location":"Venue name and Frankfurt address","dates":"Date in German format","datesEn":"Date in English format","time":"HH:MM-HH:MM","price":"Erw. €X / Kinder €X","priceEn":"Adults €X / Children €X","booking":"website.de","bookingUrl":"https://exact-url-from-search-results","needsBooking":false,"tags":["Tag1","Tag2"],"tagsZh":["标签1","标签2"],"ageRange":"3+"}]
+Output a JSON array of exactly 6 objects. Start your response with [ and end with ]. No explanation, no markdown, no prose — raw JSON only.
+
+Schema for each object:
+{"id":1,"emoji":"🦁","name":"Event name","nameZh":"活动中文名","description":"一两句中文介绍。","descriptionEn":"One or two sentences in English.","location":"Venue, Frankfurt address","dates":"Date DE","datesEn":"Date EN","time":"HH:MM-HH:MM","price":"Erw. €X / Kinder €X","priceEn":"Adults €X / Children €X","booking":"website.de","bookingUrl":"https://exact-url-from-search-results","needsBooking":false,"tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
 
 Rules:
-- Use the exact URL from the search result for bookingUrl
-- If dates/times are not in the search results, omit or write "see website"
-- needsBooking: true only if the snippet mentions booking/reservation required
-- Translate all names and descriptions into Chinese for nameZh and description fields
-- Pick diverse activity types (museum, outdoor, show, sport, etc.)`;
+- bookingUrl must be the exact URL from the search result
+- If dates/times unknown, use "siehe Website" / "see website"
+- needsBooking: true only if snippet mentions reservation required
+- Translate names and descriptions into Chinese for nameZh and description
+- Pick diverse activity types`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -77,6 +77,7 @@ Rules:
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 3000,
+        system: 'You are a JSON API. Return only valid JSON, no explanations.',
         messages: [{ role: 'user', content: prompt }]
       })
     });
@@ -87,9 +88,16 @@ Rules:
     }
 
     const data = await response.json();
-    const text = data.content[0].text.trim();
-    const clean = text.replace(/```json|```/g, '').trim();
-    const activities = JSON.parse(clean);
+    const raw = data.content[0].text.trim();
+
+    // Extract JSON array robustly — find first [ ... ] block
+    const jsonStart = raw.indexOf('[');
+    const jsonEnd = raw.lastIndexOf(']');
+    if (jsonStart === -1 || jsonEnd === -1) {
+      console.error('Claude returned non-JSON:', raw);
+      return res.status(500).json({ error: 'Claude did not return JSON', raw });
+    }
+    const activities = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
 
     return res.status(200).json({ success: true, activities });
 
