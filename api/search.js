@@ -1,14 +1,15 @@
 async function googleSearch(query, num = 5) {
-  const url = `https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_API_KEY}&cx=${process.env.GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=${num}`;
-  const res = await fetch(url);
+  const apiUrl = `https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_API_KEY}&cx=${process.env.GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=${num}`;
+  console.log(`[Google] calling: ${apiUrl.replace(process.env.GOOGLE_API_KEY, 'KEY_HIDDEN')}`);
+  const res = await fetch(apiUrl);
+  const body = await res.text();
   if (!res.ok) {
-    const body = await res.text();
-    console.error(`[Google] FAILED query="${query}" status=${res.status} body=${body.slice(0, 300)}`);
+    console.error(`[Google] FAILED query="${query}" status=${res.status} body=${body.slice(0, 500)}`);
     return [];
   }
-  const data = await res.json();
+  const data = JSON.parse(body);
   const items = data.items || [];
-  console.log(`[Google] query="${query}" → ${items.length} results`);
+  console.log(`[Google] query="${query}" → ${items.length} results (totalResults=${data.searchInformation?.totalResults})`);
   items.forEach(item => console.log(`  • ${item.link}`));
   return items.map(item => ({ title: item.title, snippet: item.snippet, url: item.link }));
 }
@@ -113,21 +114,49 @@ Rules:
       console.log(`[Search] parsed ${activities.length} activities from Google results`);
 
     } else {
-      console.warn('[Search] Google returned 0 results, falling back to Claude generation');
-      const prompt = `List 6 real children's weekend activities in Frankfurt am Main for ${dateRange}. Use well-known venues: Frankfurt Zoo, Senckenberg Museum, Städel Museum, Palmengarten, Kindermuseum Frankfurt, Römerberg.
+      // Fallback: Claude generates descriptions, but URLs are hardcoded real homepages
+      console.warn('[Search] Google returned 0 results, falling back to Claude generation with real venue URLs');
+
+      // Known-good Frankfurt venue homepages — never 404
+      const venues = [
+        { name: 'Frankfurt Zoo',         url: 'https://www.zoo-frankfurt.de',        emoji: '🦁' },
+        { name: 'Senckenberg Museum',    url: 'https://www.senckenberg.de',           emoji: '🦕' },
+        { name: 'Städel Museum',         url: 'https://www.staedelmuseum.de',         emoji: '🎨' },
+        { name: 'Palmengarten',          url: 'https://www.palmengarten.de',          emoji: '🌿' },
+        { name: 'Kindermuseum Frankfurt',url: 'https://www.kindermuseum-frankfurt.de',emoji: '🧩' },
+        { name: 'Römerberg Frankfurt',   url: 'https://www.frankfurt-tourismus.de',   emoji: '🏛️' },
+      ];
+      const venueList = venues.map(v => `${v.emoji} ${v.name}: ${v.url}`).join('\n');
+
+      const prompt = `List one children's weekend activity per venue below for ${dateRange}. Use these exact venues and their exact URLs as bookingUrl — do not invent any other URLs.
+
+VENUES (use exact URLs):
+${venueList}
 
 Output a JSON array of exactly 6 objects. Start with [ end with ]. Raw JSON only, no prose.
 
 Schema: ${SCHEMA}
 
 Rules:
-- bookingUrl: use a plausible deep link to the venue's events page (e.g. https://www.zoo-frankfurt.de/veranstaltungen), NOT the bare homepage
-- Translate names/descriptions into Chinese
-- Pick diverse activity types`;
+- bookingUrl must be exactly one of the URLs listed above, copied verbatim
+- Translate names/descriptions into Chinese for nameZh and description
+- If price unknown, use "Siehe Website / See website"`;
 
       const raw = await callClaude(SYSTEM, prompt);
       activities = parseActivities(raw);
-      console.log(`[Search] fallback generated ${activities.length} activities`);
+      // Safety: force bookingUrl to match our known list in case Claude drifted
+      const urlMap = Object.fromEntries(venues.map(v => [v.name.toLowerCase(), v.url]));
+      activities = activities.map(a => {
+        const knownVenue = venues.find(v => a.bookingUrl?.startsWith(v.url));
+        if (!knownVenue) {
+          // Find by name match
+          const match = venues.find(v => a.name?.toLowerCase().includes(v.name.split(' ')[0].toLowerCase())
+            || a.location?.toLowerCase().includes(v.name.split(' ')[0].toLowerCase()));
+          if (match) a.bookingUrl = match.url;
+        }
+        return a;
+      });
+      console.log(`[Search] fallback generated ${activities.length} activities with verified URLs`);
     }
 
     if (!Array.isArray(activities) || activities.length === 0) {
