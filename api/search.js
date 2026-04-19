@@ -16,10 +16,10 @@ async function serperSearch(query) {
   return organic.map(r => ({ title: r.title, snippet: r.snippet, url: r.link }));
 }
 
-// Fetch a page and return stripped readable text (max 2000 chars)
+// Fetch a page and return stripped readable text (max 4000 chars)
 async function fetchPageText(url) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 4000);
+  const timer = setTimeout(() => controller.abort(), 6000);
   try {
     const res = await fetch(url, {
       signal: controller.signal,
@@ -34,7 +34,7 @@ async function fetchPageText(url) {
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
-      .slice(0, 2000);
+      .slice(0, 4000);
     console.log(`[Fetch] ${url} → ${text.length} chars`);
     return text;
   } catch (e) {
@@ -54,7 +54,7 @@ async function callClaude(prompt) {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
+      max_tokens: 3000,
       system: 'You are a JSON API. Return only valid JSON, no explanations, no markdown.',
       messages: [{ role: 'user', content: prompt }]
     })
@@ -114,9 +114,9 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'Serper returned no results. Check SERPER_API_KEY in Vercel.' });
     }
 
-    // Step 2: Fetch actual page content in parallel (top 6, 4s timeout each)
+    // Step 2: Fetch actual page content in parallel (top 8, 6s timeout each)
     const pages = await Promise.all(
-      uniqueResults.slice(0, 6).map(async r => {
+      uniqueResults.slice(0, 8).map(async r => {
         const text = await fetchPageText(r.url);
         return { url: r.url, title: r.title, text };
       })
@@ -131,14 +131,14 @@ export default async function handler(req, res) {
 
     const prompt = `You are helping a Chinese family in Frankfurt find children's activities for ${dateRange}.
 
-Today is ${tomorrowStr}. Prefer activities happening around ${tomorrowStr}–${cutoffStr}, but include any activity that is currently running or upcoming in ${dateRange} — do not exclude activities just because the date is uncertain.
+Today is ${tomorrowStr}. Only include activities happening between ${tomorrowStr} and ${cutoffStr} (next 30 days). Skip anything outside that window.
 
-Below is the actual text content scraped from real event web pages. Extract up to 12 distinct children's activities, reading dates, location, price, and booking info directly from the page text.
+Below is the actual text content scraped from real event web pages. Extract up to 6 distinct children's activities, reading dates, location, price, and booking info directly from the page text.
 
 PAGE CONTENTS:
 ${context}
 
-Output a JSON array of up to 12 objects. Start with [ end with ]. Raw JSON only.
+Output a JSON array of up to 6 objects. Start with [ end with ]. Raw JSON only.
 
 Each object must have exactly these fields:
 {"id":1,"emoji":"🦁","name":"Event name from page","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English.","location":"Exact venue name and address from page","dates":"Datum from page","datesEn":"Date in English","time":"HH:MM-HH:MM or see website","price":"exact price from page or siehe Website","priceEn":"exact price in English or see website","booking":"domain.de","bookingUrl":"https://exact-page-url","bookingType":"advance","tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
@@ -154,7 +154,7 @@ Rules:
     "onsite"  — page mentions: Tageskasse, Eintritt, Eintrittskarte, tickets at door
     "free"    — page mentions: freier Eintritt, kostenlos, ohne Anmeldung, Eintritt frei
     default to "onsite" when unclear
-- Include activities currently running or starting before ${cutoffStr}; only skip activities that clearly ended before ${tomorrowStr}`;
+- Skip activities outside ${tomorrowStr}–${cutoffStr}`;
 
     const raw = await callClaude(prompt);
     const activities = parseActivities(raw);
