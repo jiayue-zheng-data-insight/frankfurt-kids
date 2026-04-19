@@ -54,7 +54,7 @@ async function callClaude(prompt) {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 3000,
+      max_tokens: 4096,
       system: 'You are a JSON API. Return only valid JSON, no explanations, no markdown.',
       messages: [{ role: 'user', content: prompt }]
     })
@@ -131,7 +131,7 @@ export default async function handler(req, res) {
 
     const prompt = `You are helping a Chinese family in Frankfurt find children's activities for ${dateRange}.
 
-Today is ${tomorrowStr}. Only include activities happening between ${tomorrowStr} and ${cutoffStr} (next 30 days). Skip anything outside that window.
+Today is ${tomorrowStr}. Prefer activities happening around ${tomorrowStr}–${cutoffStr}, but include any activity that is currently running or upcoming in ${dateRange} — do not exclude activities just because the date is uncertain.
 
 Below is the actual text content scraped from real event web pages. Extract up to 12 distinct children's activities, reading dates, location, price, and booking info directly from the page text.
 
@@ -154,7 +154,7 @@ Rules:
     "onsite"  — page mentions: Tageskasse, Eintritt, Eintrittskarte, tickets at door
     "free"    — page mentions: freier Eintritt, kostenlos, ohne Anmeldung, Eintritt frei
     default to "onsite" when unclear
-- Skip activities outside ${tomorrowStr}–${cutoffStr}`;
+- Include activities currently running or starting before ${cutoffStr}; only skip activities that clearly ended before ${tomorrowStr}`;
 
     const raw = await callClaude(prompt);
     const activities = parseActivities(raw);
