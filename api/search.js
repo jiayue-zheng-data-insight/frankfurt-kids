@@ -1,3 +1,11 @@
+async function googleSearch(query) {
+  const url = `https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_API_KEY}&cx=${process.env.GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=1`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.items?.[0]?.link || null;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -39,6 +47,15 @@ Return ONLY this JSON array, no other text:
     const text = data.content[0].text.trim();
     const clean = text.replace(/```json|```/g, '').trim();
     const activities = JSON.parse(clean);
+
+    // Search for real URLs in parallel
+    const urls = await Promise.all(
+      activities.map(a => googleSearch(`${a.name} Frankfurt`))
+    );
+    urls.forEach((url, i) => {
+      if (url) activities[i].bookingUrl = url;
+    });
+
     return res.status(200).json({ success: true, activities });
 
   } catch (err) {
