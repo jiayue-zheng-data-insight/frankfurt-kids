@@ -209,7 +209,13 @@ Each object:
 {"id":1,"emoji":"🦁","name":"Event name","nameZh":"中文名","description":"中文介绍","descriptionEn":"English.","location":"venue, address","dates":"Datum","datesEn":"Date in English","time":"HH:MM or HH:MM-HH:MM or siehe Website","price":"price or siehe Website","priceEn":"see website","booking":"domain.de","bookingUrl":"https://url","bookingType":"onsite","tags":["Tag"],"tagsZh":["标签"],"ageRange":"3+","ageGroup":"3-5"}
 
 bookingType: "advance"|"onsite"|"free" (default "onsite")
-ageGroup: "0-2"|"3-5"|"6-10"|"10+"|"all"
+ageGroup — set based on the MINIMUM age stated for the activity:
+  "0-2"  = min age 0, 1, or 2 (Baby/Kleinkind activities)
+  "3-5"  = min age 3, 4, or 5 (e.g. "ab 3 Jahren", "3+")
+  "6-10" = min age 6, 7, 8, 9, or 10 (e.g. "ab 6 Jahren", "6+")
+  "10+"  = min age 11 or older
+  "all"  = NO minimum age stated AND explicitly for all ages/families (e.g. "für die ganze Familie", "alle Altersgruppen")
+  If an activity says "3+" or "ab 3 Jahren", use "3-5" — NOT "all".
 description: Chinese only. descriptionEn: English only.
 time: "HH:MM" start only; "HH:MM-HH:MM" range; "siehe Website" unknown.
 Do NOT stop at 10 or 15 — extract every activity you find.`;

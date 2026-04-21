@@ -600,6 +600,9 @@ function refreshActivities() {
 function ageGroupMatches(a) {
   if (activeAgeFilter === 'all') return true;
   const g = a.ageGroup || inferAgeGroup(a.ageRange || '');
+  // 0-2: strict — "all" (family events) are NOT suitable for babies
+  if (activeAgeFilter === '0-2') return g === '0-2';
+  // other filters: show exact group + truly all-ages events
   return g === 'all' || g === activeAgeFilter;
 }
 
