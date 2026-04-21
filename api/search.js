@@ -103,13 +103,17 @@ export default async function handler(req, res) {
     const nextMonthEN  = nextMonthObj.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     const dateRange    = `${curMonthEN} and ${nextMonthEN}`;
 
-    // Step 1: Four Serper queries in parallel
-    // Mix broad queries with ones that target event detail pages (inurl)
+    const monthRange = `${curMonthDE} ${nextMonthDE} 2026`;
+
+    // Step 1: Six Serper queries in parallel
+    // site: queries go directly to indexed event detail pages on known Frankfurt event sites
     const allRaw = await Promise.all([
-      serperSearch(`Kinderveranstaltungen Frankfurt am Main ${curMonthDE} 2026`),
-      serperSearch(`Kinderveranstaltungen Frankfurt am Main ${nextMonthDE} 2026`),
-      serperSearch(`Frankfurt Kinder Veranstaltung ${curMonthDE} ${nextMonthDE} 2026 inurl:event OR inurl:veranstaltung`),
-      serperSearch(`Frankfurt Kinder Ausflug Programm ${curMonthDE} ${nextMonthDE} 2026 Ticket`)
+      serperSearch(`site:rausgegangen.de Frankfurt Kinder ${monthRange}`),
+      serperSearch(`site:rheinmain4family.de Frankfurt Kinder Veranstaltung ${monthRange}`),
+      serperSearch(`site:frankfurt.de Kinder Veranstaltung ${monthRange}`),
+      serperSearch(`site:kinderfreizeit-frankfurt.de ${monthRange}`),
+      serperSearch(`Kinderveranstaltungen "Frankfurt am Main" ${curMonthDE} 2026`),
+      serperSearch(`Kinderveranstaltungen "Frankfurt am Main" ${nextMonthDE} 2026`)
     ]).then(r => r.flat());
 
     // Deduplicate; sort so detail-looking URLs come first
