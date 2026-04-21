@@ -80,11 +80,12 @@ function isDetailUrl(url) {
   } catch { return false; }
 }
 
-// ── Vercel KV (Upstash Redis REST) helpers ──
-// Env vars: KV_REST_API_URL, KV_REST_API_TOKEN
+// ── Upstash Redis REST helpers ──
+// Env vars auto-injected by Vercel when you connect an Upstash database:
+//   UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN
 async function kvGet(key) {
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return null;
   try {
     const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
@@ -100,8 +101,8 @@ async function kvGet(key) {
 }
 
 async function kvSet(key, value, exSeconds = 86400) {
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return;
   try {
     await fetch(`${url}/set/${encodeURIComponent(key)}`, {
