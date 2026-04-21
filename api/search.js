@@ -53,7 +53,7 @@ async function callClaude(prompt) {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 5000,
+      max_tokens: 8000,
       system: 'You are a JSON API. Return only valid JSON, no explanations, no markdown.',
       messages: [{ role: 'user', content: prompt }]
     })
@@ -115,10 +115,10 @@ async function kvSet(key, value, exSeconds = 90000) {
 
 // Known Frankfurt kids event listing pages — server-rendered, always fetched directly
 const LISTING_PAGES = [
-  { label: 'kindaling.de Frankfurt',     url: 'https://www.kindaling.de/veranstaltungen/frankfurt' },
-  { label: 'rheinmain4family Frankfurt', url: 'https://www.rheinmain4family.de/events/selectedcity/frankfurt.html' },
-  { label: 'rheinmain4family all',       url: 'https://www.rheinmain4family.de/veranstaltungen/' },
-  { label: 'kinderfreizeit-frankfurt',   url: 'https://kinderfreizeit-frankfurt.de/' },
+  { label: 'kindaling.de Frankfurt',     url: 'https://www.kindaling.de/veranstaltungen/frankfurt',              maxChars: 15000 },
+  { label: 'rheinmain4family Frankfurt', url: 'https://www.rheinmain4family.de/events/selectedcity/frankfurt.html', maxChars: 8000 },
+  { label: 'rheinmain4family all',       url: 'https://www.rheinmain4family.de/veranstaltungen/',                maxChars: 6000 },
+  { label: 'kinderfreizeit-frankfurt',   url: 'https://kinderfreizeit-frankfurt.de/',                            maxChars: 5000 },
 ];
 
 export default async function handler(req, res) {
@@ -173,7 +173,7 @@ export default async function handler(req, res) {
 
       Promise.all(
         LISTING_PAGES.map(async p => {
-          const text = await fetchPageText(p.url, 7000, 6000);
+          const text = await fetchPageText(p.url, 10000, p.maxChars);
           return text ? { label: p.label, url: p.url, text } : null;
         })
       ).then(r => r.filter(Boolean))
@@ -221,12 +221,12 @@ Today is ${tomorrowStr}. Include activities happening between ${tomorrowStr} and
 
 IMPORTANT: Only include activities in Frankfurt am Main (not Mainz, Wiesbaden, Darmstadt, or other cities).
 
-Below are contents from Frankfurt children's event websites. The [LISTING:] sections are authoritative listing pages — extract as many distinct upcoming activities as possible from them. The [SERPER-N] sections are individual event pages.
+Below are contents from Frankfurt children's event websites. The [LISTING:] sections are authoritative listing pages — extract EVERY distinct upcoming activity you can find. The [SERPER-N] sections are individual event pages — extract those too.
 
 PAGE CONTENTS:
 ${context}
 
-Output a JSON array of up to 15 objects. Start with [ end with ]. Raw JSON only.
+Output a JSON array. Start with [ end with ]. Raw JSON only. No limit on number of activities — include every distinct upcoming event you find.
 
 Each object must have exactly these fields:
 {"id":1,"emoji":"🦁","name":"Event name","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English.","location":"Exact venue and address from page","dates":"Datum from page","datesEn":"Date in English","time":"HH:MM-HH:MM or see website","price":"price from page or siehe Website","priceEn":"price in English or see website","booking":"domain.de","bookingUrl":"https://full-url-to-event-page","bookingType":"advance","tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+","ageGroup":"3-5"}
@@ -239,9 +239,9 @@ Rules:
 - time: single "HH:MM" if only start known; "HH:MM-HH:MM" if range; "siehe Website" if unknown
 - bookingType: "advance" (Anmeldung/online buchen) | "onsite" (Tageskasse/Eintritt) | "free" (kostenlos) — default "onsite"
 - ageGroup: "0-2" | "3-5" | "6-10" | "10+" | "all"
-- Skip activities not in Frankfurt am Main
-- Skip activities clearly ended before ${tomorrowStr}
-- Prefer variety: include different types (museum, outdoor, theatre, sport, workshop, etc.)`;
+- Skip activities not in Frankfurt am Main (Mainz, Wiesbaden, Darmstadt etc. → skip)
+- Only skip if the activity CLEARLY AND DEFINITIVELY ended before ${tomorrowStr}; when in doubt, include it
+- Prefer variety: museum, outdoor, theatre, sport, workshop, zoo, etc.`;
 
     const raw = await callClaude(prompt);
     const activities = parseActivities(raw);
