@@ -166,6 +166,7 @@ Rules:
 - description in Chinese only; descriptionEn in English only; never leave German text in these fields
 - nameZh = Chinese translation of name
 - tags in English, tagsZh same in Chinese
+- time: if only start time known write "HH:MM", not "HH:MM-HH:MM"; if range known write "HH:MM-HH:MM"; if unknown write "siehe Website"
 - bookingType: "advance" (Anmeldung/online buchen) | "onsite" (Tageskasse/Eintritt) | "free" (kostenlos/freier Eintritt) — default "onsite"
 - Skip activities not in Frankfurt am Main
 - Skip activities clearly ended before ${tomorrowStr}`;

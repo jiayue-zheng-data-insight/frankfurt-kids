@@ -190,7 +190,10 @@ input[type=file]{display:none}
     <div style="font-size:13px;color:#888" id="disc-load-txt">正在搜索法兰克福近期儿童活动...</div>
   </div>
   <div id="disc-content" style="display:none">
-    <div class="notice n-info" id="disc-notice"></div>
+    <div class="notice n-info" id="disc-notice" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span id="disc-notice-txt"></span>
+      <button class="btn btn-sm" style="flex-shrink:0;padding:3px 10px;font-size:11px" onclick="refreshActivities()">🔄 刷新</button>
+    </div>
     <div class="sec-title" id="disc-title">全部活动（点击展开详情）</div>
     <div id="act-list"></div>
     <button class="btn btn-w" id="load-more-btn" style="margin-top:4px;display:none" onclick="loadMoreActs()"></button>
@@ -482,22 +485,69 @@ function setStep(n, state) {
 }
 
 // ── DISCOVER ──
+const CACHE_KEY = 'fk_activities_cache';
+const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
+
+function getCachedActivities() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const { ts, data } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL) { localStorage.removeItem(CACHE_KEY); return null; }
+    return data;
+  } catch { return null; }
+}
+
+function setCachedActivities(data) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch {}
+}
+
+function setDiscNotice(txt) {
+  const el = document.getElementById('disc-notice-txt');
+  if (el) el.textContent = txt;
+}
+
 function loadActivities() {
   document.getElementById('disc-loading').style.display = 'block';
   document.getElementById('disc-content').style.display = 'none';
   document.getElementById('disc-empty').style.display = 'none';
 
+  // Check cache first
+  const cached = getCachedActivities();
+  if (cached && cached.length > 0) {
+    document.getElementById('disc-loading').style.display = 'none';
+    const scanned = activities.filter(a => a.scan);
+    activities = [...scanned, ...cached];
+    activitiesLoaded = true;
+    visibleCount = 6;
+    setDiscNotice(`🔍 ${lang === 'zh' ? '已搜索法兰克福近期儿童活动，共找到' : 'Found'} ${cached.length} ${lang === 'zh' ? '项（缓存）' : 'events (cached)'}`);
+    document.getElementById('disc-content').style.display = 'block';
+    renderActs();
+    return;
+  }
+
+  // Progress cycling
+  const stages = ['🔍 正在搜索活动...', '📄 正在读取活动页...', '✨ 正在整理信息...'];
+  let stageIdx = 0;
+  const loadTxt = document.getElementById('disc-load-txt');
+  if (loadTxt) loadTxt.textContent = stages[0];
+  const stageTimer = setInterval(() => {
+    stageIdx = (stageIdx + 1) % stages.length;
+    if (loadTxt) loadTxt.textContent = stages[stageIdx];
+  }, 4000);
+
   fetch('/api/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
   .then(r => r.json())
   .then(data => {
+    clearInterval(stageTimer);
     document.getElementById('disc-loading').style.display = 'none';
     if (data.success && data.activities && data.activities.length > 0) {
+      setCachedActivities(data.activities);
       const scanned = activities.filter(a => a.scan);
       activities = [...scanned, ...data.activities];
       activitiesLoaded = true;
       visibleCount = 6;
-      const notice = document.getElementById('disc-notice');
-      if (notice) notice.textContent = `🔍 ${lang === 'zh' ? '已搜索法兰克福近期儿童活动，共找到' : 'Found'} ${data.activities.length} ${lang === 'zh' ? '项' : 'events in Frankfurt'}`;
+      setDiscNotice(`🔍 ${lang === 'zh' ? '已搜索法兰克福近期儿童活动，共找到' : 'Found'} ${data.activities.length} ${lang === 'zh' ? '项' : 'events in Frankfurt'}`);
       document.getElementById('disc-content').style.display = 'block';
       renderActs();
     } else {
@@ -507,11 +557,19 @@ function loadActivities() {
     }
   })
   .catch(err => {
+    clearInterval(stageTimer);
     document.getElementById('disc-loading').style.display = 'none';
     const errEl = document.getElementById('disc-err-txt');
     if (errEl) errEl.textContent = `搜索失败：${err.message}`;
     document.getElementById('disc-empty').style.display = 'block';
   });
+}
+
+function refreshActivities() {
+  localStorage.removeItem(CACHE_KEY);
+  activities = activities.filter(a => a.scan);
+  activitiesLoaded = false;
+  loadActivities();
 }
 
 function renderActs() {
