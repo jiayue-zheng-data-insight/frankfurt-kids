@@ -16,7 +16,7 @@ async function serperSearch(query, num = 10) {
   return organic.map(r => ({ title: r.title, snippet: r.snippet, url: r.link }));
 }
 
-async function fetchPageText(url, timeoutMs = 5000) {
+async function fetchPageText(url, timeoutMs = 5000, maxChars = 3000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -33,7 +33,7 @@ async function fetchPageText(url, timeoutMs = 5000) {
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
-      .slice(0, 3000);
+      .slice(0, maxChars);
     console.log(`[Fetch] ${url} → ${text.length} chars`);
     return text;
   } catch (e) {
@@ -53,7 +53,7 @@ async function callClaude(prompt) {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
+      max_tokens: 5000,
       system: 'You are a JSON API. Return only valid JSON, no explanations, no markdown.',
       messages: [{ role: 'user', content: prompt }]
     })
@@ -72,7 +72,6 @@ function parseActivities(raw) {
   return JSON.parse(raw.slice(start, end + 1));
 }
 
-// Returns true if a URL looks like a specific event page, not a generic listing
 function isDetailUrl(url) {
   try {
     const path = new URL(url).pathname;
@@ -99,7 +98,7 @@ async function kvGet(key) {
   }
 }
 
-async function kvSet(key, value, exSeconds = 86400) {
+async function kvSet(key, value, exSeconds = 90000) {
   const url = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;
   if (!url || !token) return;
@@ -114,6 +113,14 @@ async function kvSet(key, value, exSeconds = 86400) {
   }
 }
 
+// Known Frankfurt kids event listing pages — server-rendered, always fetched directly
+const LISTING_PAGES = [
+  { label: 'kindaling.de Frankfurt',     url: 'https://www.kindaling.de/veranstaltungen/frankfurt' },
+  { label: 'rheinmain4family Frankfurt', url: 'https://www.rheinmain4family.de/events/selectedcity/frankfurt.html' },
+  { label: 'rheinmain4family all',       url: 'https://www.rheinmain4family.de/veranstaltungen/' },
+  { label: 'kinderfreizeit-frankfurt',   url: 'https://kinderfreizeit-frankfurt.de/' },
+];
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -123,7 +130,7 @@ export default async function handler(req, res) {
 
   try {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD used as cache key
+    const todayStr = today.toISOString().split('T')[0];
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowStr = tomorrow.toISOString().split('T')[0];
@@ -131,7 +138,7 @@ export default async function handler(req, res) {
     cutoff.setDate(cutoff.getDate() + 30);
     const cutoffStr = cutoff.toISOString().split('T')[0];
 
-    // ── Check server-side daily KV cache ──
+    // ── Server-side daily KV cache ──
     const cacheKey = `fk_activities_${todayStr}`;
     const cached = await kvGet(cacheKey);
     if (cached) {
@@ -153,71 +160,88 @@ export default async function handler(req, res) {
     const dateRange    = `${curMonthEN} and ${nextMonthEN}`;
     const monthRange   = `${curMonthDE} ${nextMonthDE} 2026`;
 
-    // Step 1: Six Serper queries in parallel
-    const allRaw = await Promise.all([
-      serperSearch(`site:rausgegangen.de Frankfurt Kinder ${monthRange}`),
-      serperSearch(`site:rheinmain4family.de Frankfurt Kinder Veranstaltung ${monthRange}`),
-      serperSearch(`site:frankfurt.de Kinder Veranstaltung ${monthRange}`),
-      serperSearch(`site:kinderfreizeit-frankfurt.de ${monthRange}`),
-      serperSearch(`Kinderveranstaltungen "Frankfurt am Main" ${curMonthDE} 2026`),
-      serperSearch(`Kinderveranstaltungen "Frankfurt am Main" ${nextMonthDE} 2026`)
-    ]).then(r => r.flat());
+    // Step 1: Serper queries + direct listing page fetches in parallel
+    const [serperResults, listingTexts] = await Promise.all([
+      Promise.all([
+        serperSearch(`site:rausgegangen.de Frankfurt Kinder ${monthRange}`),
+        serperSearch(`site:kindaling.de veranstaltungen frankfurt ${monthRange}`),
+        serperSearch(`site:rheinmain4family.de Frankfurt Kinder ${monthRange}`),
+        serperSearch(`site:frankfurt.de Kinder Veranstaltung ${monthRange}`),
+        serperSearch(`Kinderveranstaltungen "Frankfurt am Main" ${curMonthDE} 2026`),
+        serperSearch(`Kinderveranstaltungen "Frankfurt am Main" ${nextMonthDE} 2026`),
+      ]).then(r => r.flat()),
 
-    // Deduplicate; sort so detail-looking URLs come first
-    const seen = new Set();
-    const uniqueResults = allRaw
+      Promise.all(
+        LISTING_PAGES.map(async p => {
+          const text = await fetchPageText(p.url, 7000, 6000);
+          return text ? { label: p.label, url: p.url, text } : null;
+        })
+      ).then(r => r.filter(Boolean))
+    ]);
+
+    console.log(`[Search] ${listingTexts.length}/${LISTING_PAGES.length} listing pages fetched`);
+
+    // Deduplicate Serper results; prefer detail URLs
+    const seen = new Set(listingTexts.map(l => l.url));
+    const uniqueResults = serperResults
       .filter(r => { if (seen.has(r.url)) return false; seen.add(r.url); return true; })
       .sort((a, b) => (isDetailUrl(b.url) ? 1 : 0) - (isDetailUrl(a.url) ? 1 : 0));
 
-    console.log(`[Search] ${uniqueResults.length} unique URLs (${uniqueResults.filter(r => isDetailUrl(r.url)).length} detail-looking)`);
-    if (uniqueResults.length === 0) {
-      return res.status(502).json({ error: 'Serper returned no results. Check SERPER_API_KEY.' });
+    console.log(`[Search] ${uniqueResults.length} unique Serper URLs`);
+    if (uniqueResults.length === 0 && listingTexts.length === 0) {
+      return res.status(502).json({ error: 'No results from Serper or listing pages.' });
     }
 
-    // Step 2: Fetch pages in parallel (top 12, prefer detail URLs)
+    // Step 2: Fetch top Serper pages in parallel
     const fetched = await Promise.all(
-      uniqueResults.slice(0, 12).map(async r => {
+      uniqueResults.slice(0, 10).map(async r => {
         const text = await fetchPageText(r.url);
         return text ? { url: r.url, snippet: r.snippet, text } : null;
       })
     );
-    const pages = fetched.filter(Boolean);
-    console.log(`[Search] ${pages.length}/12 pages fetched`);
+    const serperPages = fetched.filter(Boolean);
+    console.log(`[Search] ${serperPages.length}/10 Serper pages fetched`);
 
-    // Build context — if page text available use it, else fall back to snippet
-    const context = uniqueResults.slice(0, 12).map((r, i) => {
-      const page = pages.find(p => p.url === r.url);
+    // Build context: listing pages first (most comprehensive), then Serper pages
+    const listingContext = listingTexts.map(l =>
+      `[LISTING: ${l.label}]\nURL: ${l.url}\n${l.text}`
+    ).join('\n\n---\n\n');
+
+    const serperContext = uniqueResults.slice(0, 10).map((r, i) => {
+      const page = serperPages.find(p => p.url === r.url);
       const content = page ? page.text : `Title: ${r.title}\n${r.snippet}`;
-      return `[${i + 1}] URL: ${r.url}\n${content}`;
+      return `[SERPER-${i + 1}] URL: ${r.url}\n${content}`;
     }).join('\n\n---\n\n');
+
+    const context = [listingContext, serperContext].filter(Boolean).join('\n\n===\n\n');
 
     const prompt = `You are helping a Chinese family in Frankfurt find children's activities for ${dateRange}.
 
 Today is ${tomorrowStr}. Include activities happening between ${tomorrowStr} and ${cutoffStr}. Skip only activities that clearly ended before ${tomorrowStr}.
 
-IMPORTANT: Only include activities in Frankfurt am Main. Skip any activity in Mainz, Wiesbaden, Darmstadt, or other cities.
+IMPORTANT: Only include activities in Frankfurt am Main (not Mainz, Wiesbaden, Darmstadt, or other cities).
 
-Below are real web pages about Frankfurt children's events. Extract up to 12 distinct activities.
+Below are contents from Frankfurt children's event websites. The [LISTING:] sections are authoritative listing pages — extract as many distinct upcoming activities as possible from them. The [SERPER-N] sections are individual event pages.
 
 PAGE CONTENTS:
 ${context}
 
-Output a JSON array of up to 12 objects. Start with [ end with ]. Raw JSON only.
+Output a JSON array of up to 15 objects. Start with [ end with ]. Raw JSON only.
 
 Each object must have exactly these fields:
-{"id":1,"emoji":"🦁","name":"Event name","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English.","location":"Exact venue and address from page","dates":"Datum from page","datesEn":"Date in English","time":"HH:MM-HH:MM or see website","price":"price from page or siehe Website","priceEn":"price in English or see website","booking":"domain.de","bookingUrl":"https://exact-url-from-list-above","bookingType":"advance","tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+","ageGroup":"3-5"}
+{"id":1,"emoji":"🦁","name":"Event name","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English.","location":"Exact venue and address from page","dates":"Datum from page","datesEn":"Date in English","time":"HH:MM-HH:MM or see website","price":"price from page or siehe Website","priceEn":"price in English or see website","booking":"domain.de","bookingUrl":"https://full-url-to-event-page","bookingType":"advance","tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+","ageGroup":"3-5"}
 
 Rules:
-- bookingUrl MUST be the exact [N] URL from the list above for that activity — do not use homepage-level URLs
-- If the URL is a listing page (e.g. /events or /veranstaltungen without a specific event slug), try to find a more specific link mentioned in the page text; otherwise use the URL as-is
-- description in Chinese only; descriptionEn in English only; never leave German text in these fields
+- bookingUrl: for LISTING entries use the specific event URL if visible in the text, otherwise the listing URL; for SERPER entries use the [SERPER-N] URL
+- description in Chinese only; descriptionEn in English only
 - nameZh = Chinese translation of name
 - tags in English, tagsZh same in Chinese
-- time: if only start time known write "HH:MM", not "HH:MM-HH:MM"; if range known write "HH:MM-HH:MM"; if unknown write "siehe Website"
-- bookingType: "advance" (Anmeldung/online buchen) | "onsite" (Tageskasse/Eintritt) | "free" (kostenlos/freier Eintritt) — default "onsite"
-- ageGroup: classify the minimum recommended age — "0-2" (babies/toddlers under 3) | "3-5" (preschool) | "6-10" (school age) | "10+" (older kids/teens) | "all" (all ages / family)
+- time: single "HH:MM" if only start known; "HH:MM-HH:MM" if range; "siehe Website" if unknown
+- bookingType: "advance" (Anmeldung/online buchen) | "onsite" (Tageskasse/Eintritt) | "free" (kostenlos) — default "onsite"
+- ageGroup: "0-2" | "3-5" | "6-10" | "10+" | "all"
 - Skip activities not in Frankfurt am Main
-- Skip activities clearly ended before ${tomorrowStr}`;
+- Skip activities clearly ended before ${tomorrowStr}
+- Prefer variety: include different types (museum, outdoor, theatre, sport, workshop, etc.)`;
 
     const raw = await callClaude(prompt);
     const activities = parseActivities(raw);
@@ -226,7 +250,7 @@ Rules:
       return res.status(500).json({ error: 'No activities parsed', raw });
     }
 
-    // Save to KV cache (expires in 25 hours to cover timezone edge cases)
+    // Save to KV daily cache (25 hours)
     await kvSet(cacheKey, JSON.stringify(activities), 90000);
     console.log(`[KV] Saved ${activities.length} activities for ${todayStr}`);
 
