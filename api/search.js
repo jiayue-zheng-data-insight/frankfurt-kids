@@ -80,6 +80,40 @@ function isDetailUrl(url) {
   } catch { return false; }
 }
 
+// ── Vercel KV (Upstash Redis REST) helpers ──
+// Env vars: KV_REST_API_URL, KV_REST_API_TOKEN
+async function kvGet(key) {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) return null;
+  try {
+    const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.result ?? null;
+  } catch (e) {
+    console.warn('[KV] get error:', e.message);
+    return null;
+  }
+}
+
+async function kvSet(key, value, exSeconds = 86400) {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) return;
+  try {
+    await fetch(`${url}/set/${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(value)
+    });
+  } catch (e) {
+    console.warn('[KV] set error:', e.message);
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -89,6 +123,7 @@ export default async function handler(req, res) {
 
   try {
     const today = new Date();
+    const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD used as cache key
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowStr = tomorrow.toISOString().split('T')[0];
@@ -96,17 +131,29 @@ export default async function handler(req, res) {
     cutoff.setDate(cutoff.getDate() + 30);
     const cutoffStr = cutoff.toISOString().split('T')[0];
 
+    // ── Check server-side daily KV cache ──
+    const cacheKey = `fk_activities_${todayStr}`;
+    const cached = await kvGet(cacheKey);
+    if (cached) {
+      try {
+        const activities = typeof cached === 'string' ? JSON.parse(cached) : cached;
+        if (Array.isArray(activities) && activities.length > 0) {
+          console.log(`[KV] Cache hit for ${todayStr}: ${activities.length} activities`);
+          return res.status(200).json({ success: true, activities, cached: true });
+        }
+      } catch {}
+    }
+    console.log(`[KV] Cache miss for ${todayStr}, running search`);
+
     const curMonthDE   = today.toLocaleString('de-DE', { month: 'long' });
     const curMonthEN   = today.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     const nextMonthObj = new Date(today.getFullYear(), today.getMonth() + 1, 1);
     const nextMonthDE  = nextMonthObj.toLocaleString('de-DE', { month: 'long' });
     const nextMonthEN  = nextMonthObj.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     const dateRange    = `${curMonthEN} and ${nextMonthEN}`;
-
-    const monthRange = `${curMonthDE} ${nextMonthDE} 2026`;
+    const monthRange   = `${curMonthDE} ${nextMonthDE} 2026`;
 
     // Step 1: Six Serper queries in parallel
-    // site: queries go directly to indexed event detail pages on known Frankfurt event sites
     const allRaw = await Promise.all([
       serperSearch(`site:rausgegangen.de Frankfurt Kinder ${monthRange}`),
       serperSearch(`site:rheinmain4family.de Frankfurt Kinder Veranstaltung ${monthRange}`),
@@ -127,18 +174,18 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'Serper returned no results. Check SERPER_API_KEY.' });
     }
 
-    // Step 2: Fetch pages in parallel (top 10, prefer detail URLs)
+    // Step 2: Fetch pages in parallel (top 12, prefer detail URLs)
     const fetched = await Promise.all(
-      uniqueResults.slice(0, 10).map(async r => {
+      uniqueResults.slice(0, 12).map(async r => {
         const text = await fetchPageText(r.url);
         return text ? { url: r.url, snippet: r.snippet, text } : null;
       })
     );
     const pages = fetched.filter(Boolean);
-    console.log(`[Search] ${pages.length}/10 pages fetched`);
+    console.log(`[Search] ${pages.length}/12 pages fetched`);
 
     // Build context — if page text available use it, else fall back to snippet
-    const context = uniqueResults.slice(0, 10).map((r, i) => {
+    const context = uniqueResults.slice(0, 12).map((r, i) => {
       const page = pages.find(p => p.url === r.url);
       const content = page ? page.text : `Title: ${r.title}\n${r.snippet}`;
       return `[${i + 1}] URL: ${r.url}\n${content}`;
@@ -150,15 +197,15 @@ Today is ${tomorrowStr}. Include activities happening between ${tomorrowStr} and
 
 IMPORTANT: Only include activities in Frankfurt am Main. Skip any activity in Mainz, Wiesbaden, Darmstadt, or other cities.
 
-Below are real web pages about Frankfurt children's events. Extract up to 10 distinct activities.
+Below are real web pages about Frankfurt children's events. Extract up to 12 distinct activities.
 
 PAGE CONTENTS:
 ${context}
 
-Output a JSON array of up to 10 objects. Start with [ end with ]. Raw JSON only.
+Output a JSON array of up to 12 objects. Start with [ end with ]. Raw JSON only.
 
 Each object must have exactly these fields:
-{"id":1,"emoji":"🦁","name":"Event name","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English.","location":"Exact venue and address from page","dates":"Datum from page","datesEn":"Date in English","time":"HH:MM-HH:MM or see website","price":"price from page or siehe Website","priceEn":"price in English or see website","booking":"domain.de","bookingUrl":"https://exact-url-from-list-above","bookingType":"advance","tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+"}
+{"id":1,"emoji":"🦁","name":"Event name","nameZh":"活动中文名（翻译成中文）","description":"用中文写一两句介绍这个活动。","descriptionEn":"One or two sentences in English.","location":"Exact venue and address from page","dates":"Datum from page","datesEn":"Date in English","time":"HH:MM-HH:MM or see website","price":"price from page or siehe Website","priceEn":"price in English or see website","booking":"domain.de","bookingUrl":"https://exact-url-from-list-above","bookingType":"advance","tags":["Tag1"],"tagsZh":["标签1"],"ageRange":"3+","ageGroup":"3-5"}
 
 Rules:
 - bookingUrl MUST be the exact [N] URL from the list above for that activity — do not use homepage-level URLs
@@ -168,6 +215,7 @@ Rules:
 - tags in English, tagsZh same in Chinese
 - time: if only start time known write "HH:MM", not "HH:MM-HH:MM"; if range known write "HH:MM-HH:MM"; if unknown write "siehe Website"
 - bookingType: "advance" (Anmeldung/online buchen) | "onsite" (Tageskasse/Eintritt) | "free" (kostenlos/freier Eintritt) — default "onsite"
+- ageGroup: classify the minimum recommended age — "0-2" (babies/toddlers under 3) | "3-5" (preschool) | "6-10" (school age) | "10+" (older kids/teens) | "all" (all ages / family)
 - Skip activities not in Frankfurt am Main
 - Skip activities clearly ended before ${tomorrowStr}`;
 
@@ -177,6 +225,10 @@ Rules:
     if (!Array.isArray(activities) || activities.length === 0) {
       return res.status(500).json({ error: 'No activities parsed', raw });
     }
+
+    // Save to KV cache (expires in 25 hours to cover timezone edge cases)
+    await kvSet(cacheKey, JSON.stringify(activities), 90000);
+    console.log(`[KV] Saved ${activities.length} activities for ${todayStr}`);
 
     return res.status(200).json({ success: true, activities });
 
