@@ -532,7 +532,7 @@ function setDiscNotice(txt) {
   if (el) el.textContent = txt;
 }
 
-function loadActivities() {
+function loadActivities(force = false) {
   document.getElementById('disc-loading').style.display = 'block';
   document.getElementById('disc-content').style.display = 'none';
   document.getElementById('disc-empty').style.display = 'none';
@@ -561,7 +561,7 @@ function loadActivities() {
     if (loadTxt) loadTxt.textContent = stages[stageIdx];
   }, 4000);
 
-  fetch('/api/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+  fetch('/api/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force }) })
   .then(r => r.json())
   .then(data => {
     clearInterval(stageTimer);
@@ -594,12 +594,13 @@ function refreshActivities() {
   localStorage.removeItem(CACHE_KEY);
   activities = activities.filter(a => a.scan);
   activitiesLoaded = false;
-  loadActivities();
+  loadActivities(true);
 }
 
 function ageGroupMatches(a) {
   if (activeAgeFilter === 'all') return true;
   const g = a.ageGroup || inferAgeGroup(a.ageRange || '');
+  if (g === 'all') return true; // "all ages" shows under every filter
   if (activeAgeFilter === '0-2') return g === '0-2';
   if (activeAgeFilter === '3-5') return g === '3-5' || g === '0-2';
   if (activeAgeFilter === '6-10') return g === '6-10' || g === '3-5';

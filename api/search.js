@@ -139,8 +139,9 @@ export default async function handler(req, res) {
     const cutoffStr = cutoff.toISOString().split('T')[0];
 
     // ── Server-side daily KV cache ──
+    const force = req.body && req.body.force === true;
     const cacheKey = `fk_activities_${todayStr}`;
-    const cached = await kvGet(cacheKey);
+    const cached = force ? null : await kvGet(cacheKey);
     if (cached) {
       try {
         const activities = typeof cached === 'string' ? JSON.parse(cached) : cached;
