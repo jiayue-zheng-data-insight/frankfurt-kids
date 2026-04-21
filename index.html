@@ -600,15 +600,7 @@ function refreshActivities() {
 function ageGroupMatches(a) {
   if (activeAgeFilter === 'all') return true;
   const g = a.ageGroup || inferAgeGroup(a.ageRange || '');
-  // 0-2: strict — only activities specifically for babies/toddlers
-  if (activeAgeFilter === '0-2') return g === '0-2';
-  // 3-5: preschoolers + younger + all-ages family events
-  if (activeAgeFilter === '3-5') return g === '0-2' || g === '3-5' || g === 'all';
-  // 6-10: school age + slightly younger + all-ages
-  if (activeAgeFilter === '6-10') return g === '3-5' || g === '6-10' || g === 'all';
-  // 10+: teens + all-ages
-  if (activeAgeFilter === '10+') return g === '10+' || g === 'all';
-  return true;
+  return g === 'all' || g === activeAgeFilter;
 }
 
 function inferAgeGroup(ageRange) {
