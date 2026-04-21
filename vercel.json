@@ -1,10 +1,13 @@
 {
   "functions": {
-    "api/scan.js": {
-      "maxDuration": 30
-    },
-    "api/search.js": {
-      "maxDuration": 60
+    "api/scan.js":   { "maxDuration": 30 },
+    "api/search.js": { "maxDuration": 60 },
+    "api/warmup.js": { "maxDuration": 60 }
+  },
+  "crons": [
+    {
+      "path": "/api/warmup",
+      "schedule": "0 5 * * *"
     }
-  }
+  ]
 }

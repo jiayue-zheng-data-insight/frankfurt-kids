@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   "times": "opening times or show times",
   "price": "ticket prices for adults and children",
   "booking": "how to book / website / phone",
-  "needsBooking": true or false (true if advance booking is recommended),
+  "bookingType": "advance" if pre-booking required, "onsite" if tickets at door, "free" if no ticket needed,
   "description": "2-3 sentence description of what this activity is, in Chinese",
   "descriptionEn": "2-3 sentence description in English",
   "tags": ["tag1", "tag2"] (e.g. Circus, Museum, Outdoor, Art, etc),

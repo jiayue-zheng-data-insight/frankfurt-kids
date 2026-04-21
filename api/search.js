@@ -26,9 +26,17 @@ async function fetchPageText(url, timeoutMs = 6000, maxChars = 3000) {
     clearTimeout(timer);
     if (!res.ok) { console.warn(`[Fetch] ${url} → ${res.status}`); return null; }
     const html = await res.text();
+    // Resolve relative hrefs to absolute URLs so Claude can use them as bookingUrl
+    const base = new URL(url).origin;
     const text = html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
+      // Preserve anchor URLs: <a href="/event/foo">Title</a> → Title (https://site.de/event/foo)
+      .replace(/<a\s[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_, href, text) => {
+        const abs = href.startsWith('http') ? href : href.startsWith('/') ? base + href : href;
+        const label = text.replace(/<[^>]+>/g, '').trim();
+        return label ? `${label} (${abs})` : abs;
+      })
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
@@ -123,7 +131,7 @@ export default async function handler(req, res) {
     const cutoffStr   = (() => { const d = new Date(today); d.setDate(d.getDate()+30); return d.toISOString().split('T')[0]; })();
 
     const force = !!(req.body && req.body.force);
-    const cacheKey = `fk_v7_${todayStr}`;
+    const cacheKey = `fk_v8_${todayStr}`;
 
     if (!force) {
       const cached = await kvGet(cacheKey);
@@ -154,6 +162,10 @@ export default async function handler(req, res) {
         serperSearch(`site:kindaling.de veranstaltungen frankfurt ${monthRange}`),
         serperSearch(`site:rheinmain4family.de Frankfurt Kinder ${monthRange}`),
         serperSearch(`site:frankfurt.de Kinder Veranstaltung ${monthRange}`),
+        serperSearch(`site:zoo-frankfurt.de Kinder Veranstaltung ${monthRange}`),
+        serperSearch(`site:staedelmuseum.de Kinder Familien ${monthRange}`),
+        serperSearch(`site:senckenberg.de Kinder Veranstaltung ${monthRange}`),
+        serperSearch(`site:kindermuseum-frankfurt.de ${monthRange}`),
         serperSearch(`Kinderveranstaltungen "Frankfurt am Main" ${curMonthDE} 2026`),
         serperSearch(`Kinderveranstaltungen "Frankfurt am Main" ${nextMonthDE} 2026`),
       ]).then(r => r.flat()),
