@@ -6,16 +6,16 @@ async function serperSearch(query, num = 10) {
   });
   const body = await res.text();
   if (!res.ok) {
-    console.error(`[Serper] FAILED status=${res.status} body=${body.slice(0, 300)}`);
+    console.error(`[Serper] FAILED ${res.status}: ${body.slice(0, 200)}`);
     return [];
   }
   const data = JSON.parse(body);
   const organic = data.organic || [];
-  console.log(`[Serper] "${query}" → ${organic.length} results`);
+  console.log(`[Serper] "${query}" → ${organic.length}`);
   return organic.map(r => ({ title: r.title, snippet: r.snippet, url: r.link }));
 }
 
-async function fetchPageText(url, timeoutMs = 8000, maxChars = 3000) {
+async function fetchPageText(url, timeoutMs = 6000, maxChars = 3000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -43,6 +43,7 @@ async function fetchPageText(url, timeoutMs = 8000, maxChars = 3000) {
 }
 
 async function callClaude(prompt) {
+  console.log(`[Claude] prompt length: ${prompt.length} chars`);
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -51,77 +52,59 @@ async function callClaude(prompt) {
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',   // 64K output tokens vs Haiku's 8K
-      max_tokens: 16000,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 8096,
       system: 'You are a JSON API. Return only valid JSON, no explanations, no markdown.',
       messages: [{ role: 'user', content: prompt }]
     })
   });
-  if (!res.ok) throw new Error(`Claude API error ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Claude ${res.status}: ${err.slice(0, 300)}`);
+  }
   const data = await res.json();
   const raw = data.content[0].text.trim();
-  console.log('[Claude] raw (first 400):', raw.slice(0, 400));
-  console.log('[Claude] raw length:', raw.length);
+  console.log(`[Claude] response: ${raw.length} chars, starts: ${raw.slice(0, 80)}`);
   return raw;
 }
 
 function parseActivities(raw) {
   const start = raw.indexOf('[');
   const end = raw.lastIndexOf(']');
-  if (start === -1 || end === -1) throw new Error('No JSON array in Claude response');
+  if (start === -1 || end === -1) throw new Error('No JSON array found');
   return JSON.parse(raw.slice(start, end + 1));
 }
 
 function isDetailUrl(url) {
-  try {
-    const path = new URL(url).pathname;
-    return path.split('/').filter(Boolean).length >= 2;
-  } catch { return false; }
+  try { return new URL(url).pathname.split('/').filter(Boolean).length >= 2; }
+  catch { return false; }
 }
 
-// ── Upstash Redis REST helpers ──
+// ── Upstash Redis REST ──
 async function kvGet(key) {
-  const url = process.env.KV_REST_API_URL;
+  const base = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) { console.log('[KV] no credentials'); return null; }
+  if (!base || !token) return null;
   try {
-    const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
+    const r = await fetch(`${base}/get/${encodeURIComponent(key)}`, {
       headers: { Authorization: `Bearer ${token}` }
     });
-    if (!res.ok) { console.warn('[KV] get failed:', res.status); return null; }
-    const data = await res.json();
-    console.log('[KV] get result type:', typeof data.result, 'length:', (data.result||'').length);
-    return data.result ?? null;
-  } catch (e) {
-    console.warn('[KV] get error:', e.message);
-    return null;
-  }
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.result ?? null;
+  } catch { return null; }
 }
 
-async function kvSet(key, valueStr) {
-  const url = process.env.KV_REST_API_URL;
+async function kvSet(key, value) {
+  const base = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) return;
+  if (!base || !token) return;
   try {
-    // Upstash REST: GET-style set with expiry avoids body encoding issues for large values
-    const r = await fetch(`${url}/set/${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: valueStr, ex: 90000 })
+    await fetch(`${base}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}/ex/90000`, {
+      headers: { Authorization: `Bearer ${token}` }
     });
-    console.log('[KV] set status:', r.status);
-  } catch (e) {
-    console.warn('[KV] set error:', e.message);
-  }
+  } catch (e) { console.warn('[KV] set error:', e.message); }
 }
-
-// Known Frankfurt kids listing pages — server-rendered
-const LISTING_PAGES = [
-  { label: 'kindaling.de Frankfurt',     url: 'https://www.kindaling.de/veranstaltungen/frankfurt',                maxChars: 25000 },
-  { label: 'rheinmain4family Frankfurt', url: 'https://www.rheinmain4family.de/events/selectedcity/frankfurt.html', maxChars: 12000 },
-  { label: 'rheinmain4family general',   url: 'https://www.rheinmain4family.de/veranstaltungen/',                  maxChars: 8000  },
-  { label: 'kinderfreizeit-frankfurt',   url: 'https://kinderfreizeit-frankfurt.de/',                              maxChars: 6000  },
-];
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -130,44 +113,42 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
+  const t0 = Date.now();
+  const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
+
   try {
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
-    const cutoff = new Date(today);
-    cutoff.setDate(cutoff.getDate() + 30);
-    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const tomorrowStr = (() => { const d = new Date(today); d.setDate(d.getDate()+1); return d.toISOString().split('T')[0]; })();
+    const cutoffStr   = (() => { const d = new Date(today); d.setDate(d.getDate()+30); return d.toISOString().split('T')[0]; })();
 
     const force = !!(req.body && req.body.force);
-    const cacheKey = `fk_activities_${todayStr}_v5`;
+    const cacheKey = `fk_v6_${todayStr}`;
 
-    // ── KV cache check ──
     if (!force) {
       const cached = await kvGet(cacheKey);
       if (cached) {
         try {
-          const activities = JSON.parse(cached);
-          if (Array.isArray(activities) && activities.length > 0) {
-            console.log(`[KV] hit: ${activities.length} activities`);
-            return res.status(200).json({ success: true, activities, cached: true });
+          const acts = JSON.parse(cached);
+          if (Array.isArray(acts) && acts.length > 0) {
+            console.log(`[KV] hit: ${acts.length} activities`);
+            return res.status(200).json({ success: true, activities: acts, cached: true });
           }
-        } catch (e) { console.warn('[KV] parse error:', e.message); }
+        } catch {}
       }
     }
-    console.log(`[Search] starting fresh search (force=${force})`);
+    console.log(`[Search] start (force=${force})`);
 
-    const curMonthDE   = today.toLocaleString('de-DE', { month: 'long' });
-    const curMonthEN   = today.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
-    const nextMonthObj = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-    const nextMonthDE  = nextMonthObj.toLocaleString('de-DE', { month: 'long' });
-    const nextMonthEN  = nextMonthObj.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
-    const dateRange    = `${curMonthEN} and ${nextMonthEN}`;
-    const monthRange   = `${curMonthDE} ${nextMonthDE} 2026`;
+    const curMonthDE  = today.toLocaleString('de-DE', { month: 'long' });
+    const curMonthEN  = today.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    const nextMo      = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const nextMonthDE = nextMo.toLocaleString('de-DE', { month: 'long' });
+    const nextMonthEN = nextMo.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    const monthRange  = `${curMonthDE} ${nextMonthDE} 2026`;
+    const dateRange   = `${curMonthEN} and ${nextMonthEN}`;
 
-    // Step 1: Serper queries + direct listing fetches — in parallel
-    const [serperResults, listingTexts] = await Promise.all([
+    // ── Step 1: Serper queries + kindaling direct fetch — parallel ──
+    const [serperRaw, kindText, kinderText] = await Promise.all([
       Promise.all([
         serperSearch(`site:rausgegangen.de Frankfurt Kinder ${monthRange}`),
         serperSearch(`site:kindaling.de veranstaltungen frankfurt ${monthRange}`),
@@ -176,92 +157,79 @@ export default async function handler(req, res) {
         serperSearch(`Kinderveranstaltungen "Frankfurt am Main" ${curMonthDE} 2026`),
         serperSearch(`Kinderveranstaltungen "Frankfurt am Main" ${nextMonthDE} 2026`),
       ]).then(r => r.flat()),
-
-      Promise.all(
-        LISTING_PAGES.map(async p => {
-          const text = await fetchPageText(p.url, 10000, p.maxChars);
-          return text ? { label: p.label, url: p.url, text } : null;
-        })
-      ).then(r => r.filter(Boolean))
+      // kindaling: direct fetch, up to 15 000 chars (~50 events worth)
+      fetchPageText('https://www.kindaling.de/veranstaltungen/frankfurt', 10000, 15000),
+      // kinderfreizeit-frankfurt: small backup listing
+      fetchPageText('https://kinderfreizeit-frankfurt.de/', 6000, 5000),
     ]);
+    console.log(`[${elapsed()}] serper=${serperRaw.length} kindaling=${kindText?.length||0} kinderfreizeit=${kinderText?.length||0}`);
 
-    console.log(`[Search] listing pages: ${listingTexts.map(l => `${l.label}=${l.text.length}chars`).join(', ')}`);
-    console.log(`[Search] serper results: ${serperResults.length}`);
-
-    // Deduplicate + sort Serper results
-    const seenUrls = new Set(listingTexts.map(l => l.url));
-    const uniqueSerper = serperResults
+    // ── Step 2: Deduplicate Serper, then fetch top 10 pages (3000 chars each) ──
+    const seenUrls = new Set(['https://www.kindaling.de/veranstaltungen/frankfurt', 'https://kinderfreizeit-frankfurt.de/']);
+    const uniqueSerper = serperRaw
       .filter(r => { if (seenUrls.has(r.url)) return false; seenUrls.add(r.url); return true; })
-      .sort((a, b) => (isDetailUrl(b.url) ? 1 : 0) - (isDetailUrl(a.url) ? 1 : 0));
+      .sort((a, b) => (isDetailUrl(b.url)?1:0) - (isDetailUrl(a.url)?1:0));
 
-    // Step 2: Fetch top 12 Serper pages (3000 chars each = controlled size)
-    const serperFetched = await Promise.all(
-      uniqueSerper.slice(0, 12).map(async r => {
-        const text = await fetchPageText(r.url, 6000, 3000);
-        return text ? { url: r.url, text } : null;
+    const serperPages = (await Promise.all(
+      uniqueSerper.slice(0, 10).map(async r => {
+        const text = await fetchPageText(r.url, 5000, 3000);
+        return text ? { url: r.url, text } : { url: r.url, text: `${r.title}\n${r.snippet}` };
       })
-    );
-    const serperPages = serperFetched.filter(Boolean);
-    console.log(`[Search] serper pages fetched: ${serperPages.length}`);
+    ));
+    console.log(`[${elapsed()}] serper pages done`);
 
-    // Build context — listing pages first (most complete), then Serper
-    const listingContext = listingTexts.map(l =>
-      `[LISTING: ${l.label}]\nURL: ${l.url}\n${l.text}`
+    // ── Build context ──
+    const listingSection = [
+      kindText  && `[LISTING: kindaling.de/veranstaltungen/frankfurt]\n${kindText}`,
+      kinderText && `[LISTING: kinderfreizeit-frankfurt.de]\n${kinderText}`,
+    ].filter(Boolean).join('\n\n---\n\n');
+
+    const serperSection = serperPages.map((p, i) =>
+      `[${i+1}] URL: ${p.url}\n${p.text}`
     ).join('\n\n---\n\n');
 
-    const serperContext = uniqueSerper.slice(0, 12).map((r, i) => {
-      const page = serperPages.find(p => p.url === r.url);
-      const content = page ? page.text : `Title: ${r.title}\n${r.snippet}`;
-      return `[${i + 1}] URL: ${r.url}\n${content}`;
-    }).join('\n\n---\n\n');
+    const context = [listingSection, serperSection].filter(Boolean).join('\n\n===\n\n');
+    console.log(`[${elapsed()}] context=${context.length} chars`);
 
-    const context = [listingContext, serperContext].filter(Boolean).join('\n\n===\n\n');
-    console.log(`[Search] total context length: ${context.length} chars`);
-
+    // ── Step 3: Claude ──
     const prompt = `You are helping a Chinese family in Frankfurt find children's activities for ${dateRange}.
 
 Today is ${tomorrowStr}. Include activities from ${tomorrowStr} to ${cutoffStr}.
-Only skip an activity if it CLEARLY AND DEFINITIVELY ended before ${tomorrowStr}.
-When in doubt about dates, include the activity.
+Only skip if CLEARLY ended before ${tomorrowStr} — when unsure, include it.
+Frankfurt am Main only. Skip Mainz, Wiesbaden, Darmstadt and other cities.
 
-IMPORTANT: Frankfurt am Main only. Skip Mainz, Wiesbaden, Darmstadt, and other cities.
-
-The [LISTING:] sections below are live Frankfurt children's event listing pages — extract EVERY distinct activity you can find. Do not stop early.
+The [LISTING:] sections are live event listing pages — extract every distinct activity.
 
 PAGE CONTENTS:
 ${context}
 
-Output a JSON array containing every distinct upcoming activity found. No limit on count. Start with [ end with ]. Raw JSON only.
+Output a JSON array. Start with [ end with ]. No limit on count — include every activity found.
 
 Each object:
-{"id":1,"emoji":"🦁","name":"Event name","nameZh":"中文名","description":"中文介绍（一两句）","descriptionEn":"English.","location":"venue, address","dates":"Datum","datesEn":"Date in English","time":"HH:MM or HH:MM-HH:MM or siehe Website","price":"price or siehe Website","priceEn":"price or see website","booking":"domain.de","bookingUrl":"https://full-url","bookingType":"onsite","tags":["Tag"],"tagsZh":["标签"],"ageRange":"3+","ageGroup":"3-5"}
+{"id":1,"emoji":"🦁","name":"Event name","nameZh":"中文名","description":"中文介绍","descriptionEn":"English.","location":"venue, address","dates":"Datum","datesEn":"Date in English","time":"HH:MM or HH:MM-HH:MM or siehe Website","price":"price or siehe Website","priceEn":"see website","booking":"domain.de","bookingUrl":"https://url","bookingType":"onsite","tags":["Tag"],"tagsZh":["标签"],"ageRange":"3+","ageGroup":"3-5"}
 
-Rules:
-- bookingType: "advance" (Anmeldung) | "onsite" (Tageskasse) | "free" (kostenlos) — default "onsite"
-- ageGroup: "0-2" | "3-5" | "6-10" | "10+" | "all"
-- description Chinese only; descriptionEn English only
-- time: "HH:MM" if start only; "HH:MM-HH:MM" if range; "siehe Website" if unknown
-- bookingUrl: use the most specific event URL available
-- Extract as many activities as possible — do not stop at 10 or 15`;
+bookingType: "advance"|"onsite"|"free" (default "onsite")
+ageGroup: "0-2"|"3-5"|"6-10"|"10+"|"all"
+description: Chinese only. descriptionEn: English only.
+time: "HH:MM" start only; "HH:MM-HH:MM" range; "siehe Website" unknown.
+Do NOT stop at 10 or 15 — extract every activity you find.`;
 
     const raw = await callClaude(prompt);
-    const activities = parseActivities(raw);
-    console.log(`[Search] activities parsed: ${activities.length}`);
+    console.log(`[${elapsed()}] claude done`);
 
-    if (!Array.isArray(activities) || activities.length === 0) {
+    const activities = parseActivities(raw);
+    activities.forEach((a, i) => { a.id = i + 1; });
+    console.log(`[${elapsed()}] parsed ${activities.length} activities`);
+
+    if (activities.length === 0) {
       return res.status(500).json({ error: 'No activities parsed', raw: raw.slice(0, 500) });
     }
 
-    // Re-assign sequential ids
-    activities.forEach((a, i) => { a.id = i + 1; });
-
-    // Save to KV
     await kvSet(cacheKey, JSON.stringify(activities));
-
     return res.status(200).json({ success: true, activities });
 
   } catch (err) {
-    console.error('[Search] fatal error:', err);
+    console.error(`[${elapsed()}] fatal:`, err.message);
     return res.status(500).json({ error: err.message });
   }
 }
