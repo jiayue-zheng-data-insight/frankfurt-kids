@@ -12,11 +12,10 @@ async function serperSearch(query, num = 10) {
   const data = JSON.parse(body);
   const organic = data.organic || [];
   console.log(`[Serper] "${query}" → ${organic.length} results`);
-  organic.forEach(r => console.log(`  • ${r.link}`));
   return organic.map(r => ({ title: r.title, snippet: r.snippet, url: r.link }));
 }
 
-async function fetchPageText(url, timeoutMs = 10000, maxChars = 0) {
+async function fetchPageText(url, timeoutMs = 8000, maxChars = 3000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -27,13 +26,13 @@ async function fetchPageText(url, timeoutMs = 10000, maxChars = 0) {
     clearTimeout(timer);
     if (!res.ok) { console.warn(`[Fetch] ${url} → ${res.status}`); return null; }
     const html = await res.text();
-    let text = html
+    const text = html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
-      .trim();
-    if (maxChars > 0) text = text.slice(0, maxChars);
+      .trim()
+      .slice(0, maxChars);
     console.log(`[Fetch] ${url} → ${text.length} chars`);
     return text;
   } catch (e) {
@@ -42,8 +41,6 @@ async function fetchPageText(url, timeoutMs = 10000, maxChars = 0) {
     return null;
   }
 }
-
-const CLAUDE_SYSTEM = 'You are a JSON API. Return only valid JSON, no explanations, no markdown.';
 
 async function callClaude(prompt) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -54,9 +51,9 @@ async function callClaude(prompt) {
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 8096,
-      system: CLAUDE_SYSTEM,
+      model: 'claude-sonnet-4-6',   // 64K output tokens vs Haiku's 8K
+      max_tokens: 16000,
+      system: 'You are a JSON API. Return only valid JSON, no explanations, no markdown.',
       messages: [{ role: 'user', content: prompt }]
     })
   });
@@ -64,6 +61,7 @@ async function callClaude(prompt) {
   const data = await res.json();
   const raw = data.content[0].text.trim();
   console.log('[Claude] raw (first 400):', raw.slice(0, 400));
+  console.log('[Claude] raw length:', raw.length);
   return raw;
 }
 
@@ -85,13 +83,14 @@ function isDetailUrl(url) {
 async function kvGet(key) {
   const url = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) return null;
+  if (!url || !token) { console.log('[KV] no credentials'); return null; }
   try {
     const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
       headers: { Authorization: `Bearer ${token}` }
     });
-    if (!res.ok) return null;
+    if (!res.ok) { console.warn('[KV] get failed:', res.status); return null; }
     const data = await res.json();
+    console.log('[KV] get result type:', typeof data.result, 'length:', (data.result||'').length);
     return data.result ?? null;
   } catch (e) {
     console.warn('[KV] get error:', e.message);
@@ -99,72 +98,30 @@ async function kvGet(key) {
   }
 }
 
-async function kvSet(key, value) {
+async function kvSet(key, valueStr) {
   const url = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;
   if (!url || !token) return;
   try {
-    // Upstash Redis REST: POST single command as JSON array
-    await fetch(url, {
+    // Upstash REST: GET-style set with expiry avoids body encoding issues for large values
+    const r = await fetch(`${url}/set/${encodeURIComponent(key)}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(['SET', key, value, 'EX', 90000])
+      body: JSON.stringify({ value: valueStr, ex: 90000 })
     });
+    console.log('[KV] set status:', r.status);
   } catch (e) {
     console.warn('[KV] set error:', e.message);
   }
 }
 
-// Known Frankfurt kids listing pages — server-rendered, fetched directly every time
-// maxChars: generous but bounded so Claude API requests stay under ~200KB
+// Known Frankfurt kids listing pages — server-rendered
 const LISTING_PAGES = [
-  { label: 'kindaling.de Frankfurt',      url: 'https://www.kindaling.de/veranstaltungen/frankfurt',               maxChars: 30000 },
-  { label: 'rheinmain4family Frankfurt',  url: 'https://www.rheinmain4family.de/events/selectedcity/frankfurt.html', maxChars: 15000 },
-  { label: 'rheinmain4family general',    url: 'https://www.rheinmain4family.de/veranstaltungen/',                 maxChars: 10000 },
-  { label: 'kinderfreizeit-frankfurt',    url: 'https://kinderfreizeit-frankfurt.de/',                             maxChars: 8000  },
+  { label: 'kindaling.de Frankfurt',     url: 'https://www.kindaling.de/veranstaltungen/frankfurt',                maxChars: 25000 },
+  { label: 'rheinmain4family Frankfurt', url: 'https://www.rheinmain4family.de/events/selectedcity/frankfurt.html', maxChars: 12000 },
+  { label: 'rheinmain4family general',   url: 'https://www.rheinmain4family.de/veranstaltungen/',                  maxChars: 8000  },
+  { label: 'kinderfreizeit-frankfurt',   url: 'https://kinderfreizeit-frankfurt.de/',                              maxChars: 6000  },
 ];
-
-function buildPrompt(context, dateRange, tomorrowStr, cutoffStr, sourceLabel) {
-  return `You are helping a Chinese family in Frankfurt find children's activities for ${dateRange}.
-
-Today is ${tomorrowStr}. Include activities from ${tomorrowStr} to ${cutoffStr}. Only skip if CLEARLY ended before ${tomorrowStr}.
-
-IMPORTANT: Frankfurt am Main only. Skip Mainz, Wiesbaden, Darmstadt, and any other city.
-
-Source: ${sourceLabel}
-
-PAGE CONTENTS:
-${context}
-
-Extract EVERY distinct upcoming activity. Output a JSON array — no limit on count. Start with [ end with ]. Raw JSON only.
-
-Each object:
-{"id":1,"emoji":"🦁","name":"Event name","nameZh":"中文名","description":"中文介绍（一两句）","descriptionEn":"English description.","location":"venue and address","dates":"Datum","datesEn":"Date in English","time":"HH:MM or HH:MM-HH:MM or siehe Website","price":"price or siehe Website","priceEn":"price in English or see website","booking":"domain.de","bookingUrl":"https://full-url","bookingType":"advance","tags":["Tag"],"tagsZh":["标签"],"ageRange":"3+","ageGroup":"3-5"}
-
-Rules:
-- bookingType: "advance" | "onsite" | "free" (default "onsite")
-- ageGroup: "0-2" | "3-5" | "6-10" | "10+" | "all"
-- description Chinese only; descriptionEn English only
-- time: single HH:MM if only start; HH:MM-HH:MM if range; "siehe Website" if unknown
-- Skip non-Frankfurt; only skip past events if CLEARLY ended before ${tomorrowStr}`;
-}
-
-function deduplicateActivities(lists) {
-  const seen = new Set();
-  const result = [];
-  for (const list of lists) {
-    for (const a of list) {
-      // Deduplicate by normalised name (lowercase, strip spaces)
-      const key = (a.name || '').toLowerCase().replace(/\s+/g, '');
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      result.push(a);
-    }
-  }
-  // Re-assign sequential ids
-  result.forEach((a, i) => { a.id = i + 1; });
-  return result;
-}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -183,20 +140,23 @@ export default async function handler(req, res) {
     cutoff.setDate(cutoff.getDate() + 30);
     const cutoffStr = cutoff.toISOString().split('T')[0];
 
-    // Cache key includes version suffix — bump to v3 to bust old cached results
-    const force = req.body && req.body.force === true;
-    const cacheKey = `fk_activities_${todayStr}_v4`;
-    const cached = force ? null : await kvGet(cacheKey);
-    if (cached) {
-      try {
-        const activities = JSON.parse(cached);
-        if (Array.isArray(activities) && activities.length > 0) {
-          console.log(`[KV] Cache hit for ${todayStr}: ${activities.length} activities`);
-          return res.status(200).json({ success: true, activities, cached: true });
-        }
-      } catch {}
+    const force = !!(req.body && req.body.force);
+    const cacheKey = `fk_activities_${todayStr}_v5`;
+
+    // ── KV cache check ──
+    if (!force) {
+      const cached = await kvGet(cacheKey);
+      if (cached) {
+        try {
+          const activities = JSON.parse(cached);
+          if (Array.isArray(activities) && activities.length > 0) {
+            console.log(`[KV] hit: ${activities.length} activities`);
+            return res.status(200).json({ success: true, activities, cached: true });
+          }
+        } catch (e) { console.warn('[KV] parse error:', e.message); }
+      }
     }
-    console.log(`[KV] Cache miss for ${todayStr}_v3, running search`);
+    console.log(`[Search] starting fresh search (force=${force})`);
 
     const curMonthDE   = today.toLocaleString('de-DE', { month: 'long' });
     const curMonthEN   = today.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
@@ -206,7 +166,7 @@ export default async function handler(req, res) {
     const dateRange    = `${curMonthEN} and ${nextMonthEN}`;
     const monthRange   = `${curMonthDE} ${nextMonthDE} 2026`;
 
-    // Step 1: Serper queries + listing page fetches in parallel — no char limits
+    // Step 1: Serper queries + direct listing fetches — in parallel
     const [serperResults, listingTexts] = await Promise.all([
       Promise.all([
         serperSearch(`site:rausgegangen.de Frankfurt Kinder ${monthRange}`),
@@ -219,67 +179,84 @@ export default async function handler(req, res) {
 
       Promise.all(
         LISTING_PAGES.map(async p => {
-          const text = await fetchPageText(p.url, 12000, p.maxChars);
+          const text = await fetchPageText(p.url, 10000, p.maxChars);
           return text ? { label: p.label, url: p.url, text } : null;
         })
       ).then(r => r.filter(Boolean))
     ]);
 
-    console.log(`[Search] ${listingTexts.length}/${LISTING_PAGES.length} listing pages, ${serperResults.length} Serper results`);
+    console.log(`[Search] listing pages: ${listingTexts.map(l => `${l.label}=${l.text.length}chars`).join(', ')}`);
+    console.log(`[Search] serper results: ${serperResults.length}`);
 
-    // Deduplicate Serper URLs
+    // Deduplicate + sort Serper results
     const seenUrls = new Set(listingTexts.map(l => l.url));
     const uniqueSerper = serperResults
       .filter(r => { if (seenUrls.has(r.url)) return false; seenUrls.add(r.url); return true; })
       .sort((a, b) => (isDetailUrl(b.url) ? 1 : 0) - (isDetailUrl(a.url) ? 1 : 0));
 
-    if (uniqueSerper.length === 0 && listingTexts.length === 0) {
-      return res.status(502).json({ error: 'No results from Serper or listing pages.' });
-    }
-
-    // Step 2: Fetch Serper pages — no limit on count, no char limit
-    const serperPagesFetched = await Promise.all(
-      uniqueSerper.map(async r => {
-        const text = await fetchPageText(r.url);
-        return text ? { url: r.url, snippet: r.snippet, text } : null;
+    // Step 2: Fetch top 12 Serper pages (3000 chars each = controlled size)
+    const serperFetched = await Promise.all(
+      uniqueSerper.slice(0, 12).map(async r => {
+        const text = await fetchPageText(r.url, 6000, 3000);
+        return text ? { url: r.url, text } : null;
       })
     );
-    const serperPages = serperPagesFetched.filter(Boolean);
-    console.log(`[Search] ${serperPages.length}/${uniqueSerper.length} Serper pages fetched`);
+    const serperPages = serperFetched.filter(Boolean);
+    console.log(`[Search] serper pages fetched: ${serperPages.length}`);
 
-    // Step 3: Two parallel Claude calls — listing pages and Serper pages separately
-    // This doubles the effective output token budget (2 × 8096)
+    // Build context — listing pages first (most complete), then Serper
     const listingContext = listingTexts.map(l =>
       `[LISTING: ${l.label}]\nURL: ${l.url}\n${l.text}`
     ).join('\n\n---\n\n');
 
-    const serperContext = uniqueSerper.map((r, i) => {
+    const serperContext = uniqueSerper.slice(0, 12).map((r, i) => {
       const page = serperPages.find(p => p.url === r.url);
       const content = page ? page.text : `Title: ${r.title}\n${r.snippet}`;
       return `[${i + 1}] URL: ${r.url}\n${content}`;
     }).join('\n\n---\n\n');
 
-    const [listingActivities, serperActivities] = await Promise.all([
-      listingContext
-        ? callClaude(buildPrompt(listingContext, dateRange, tomorrowStr, cutoffStr, 'Direct listing pages (kindaling.de, rheinmain4family.de)')).then(parseActivities).catch(e => { console.error('[Claude-listing]', e.message); return []; })
-        : Promise.resolve([]),
-      serperContext
-        ? callClaude(buildPrompt(serperContext, dateRange, tomorrowStr, cutoffStr, 'Google search results (rausgegangen.de, frankfurt.de, etc.)')).then(parseActivities).catch(e => { console.error('[Claude-serper]', e.message); return []; })
-        : Promise.resolve([]),
-    ]);
+    const context = [listingContext, serperContext].filter(Boolean).join('\n\n===\n\n');
+    console.log(`[Search] total context length: ${context.length} chars`);
 
-    console.log(`[Claude] listing=${listingActivities.length} serper=${serperActivities.length}`);
+    const prompt = `You are helping a Chinese family in Frankfurt find children's activities for ${dateRange}.
 
-    const activities = deduplicateActivities([listingActivities, serperActivities]);
-    console.log(`[Search] Total after dedup: ${activities.length}`);
+Today is ${tomorrowStr}. Include activities from ${tomorrowStr} to ${cutoffStr}.
+Only skip an activity if it CLEARLY AND DEFINITIVELY ended before ${tomorrowStr}.
+When in doubt about dates, include the activity.
 
-    if (activities.length === 0) {
-      return res.status(500).json({ error: 'No activities parsed from either source' });
+IMPORTANT: Frankfurt am Main only. Skip Mainz, Wiesbaden, Darmstadt, and other cities.
+
+The [LISTING:] sections below are live Frankfurt children's event listing pages — extract EVERY distinct activity you can find. Do not stop early.
+
+PAGE CONTENTS:
+${context}
+
+Output a JSON array containing every distinct upcoming activity found. No limit on count. Start with [ end with ]. Raw JSON only.
+
+Each object:
+{"id":1,"emoji":"🦁","name":"Event name","nameZh":"中文名","description":"中文介绍（一两句）","descriptionEn":"English.","location":"venue, address","dates":"Datum","datesEn":"Date in English","time":"HH:MM or HH:MM-HH:MM or siehe Website","price":"price or siehe Website","priceEn":"price or see website","booking":"domain.de","bookingUrl":"https://full-url","bookingType":"onsite","tags":["Tag"],"tagsZh":["标签"],"ageRange":"3+","ageGroup":"3-5"}
+
+Rules:
+- bookingType: "advance" (Anmeldung) | "onsite" (Tageskasse) | "free" (kostenlos) — default "onsite"
+- ageGroup: "0-2" | "3-5" | "6-10" | "10+" | "all"
+- description Chinese only; descriptionEn English only
+- time: "HH:MM" if start only; "HH:MM-HH:MM" if range; "siehe Website" if unknown
+- bookingUrl: use the most specific event URL available
+- Extract as many activities as possible — do not stop at 10 or 15`;
+
+    const raw = await callClaude(prompt);
+    const activities = parseActivities(raw);
+    console.log(`[Search] activities parsed: ${activities.length}`);
+
+    if (!Array.isArray(activities) || activities.length === 0) {
+      return res.status(500).json({ error: 'No activities parsed', raw: raw.slice(0, 500) });
     }
 
-    // Save to KV daily cache
+    // Re-assign sequential ids
+    activities.forEach((a, i) => { a.id = i + 1; });
+
+    // Save to KV
     await kvSet(cacheKey, JSON.stringify(activities));
-    console.log(`[KV] Saved ${activities.length} activities for ${todayStr}_v3`);
 
     return res.status(200).json({ success: true, activities });
 
