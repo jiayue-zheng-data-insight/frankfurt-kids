@@ -104,9 +104,11 @@ async function kvSet(key, value) {
   const token = process.env.KV_REST_API_TOKEN;
   if (!url || !token) return;
   try {
-    // SET key value EX 90000 (25 hours)
-    await fetch(`${url}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}/ex/90000`, {
-      headers: { Authorization: `Bearer ${token}` }
+    // Upstash Redis REST: POST single command as JSON array
+    await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(['SET', key, value, 'EX', 90000])
     });
   } catch (e) {
     console.warn('[KV] set error:', e.message);
@@ -114,11 +116,12 @@ async function kvSet(key, value) {
 }
 
 // Known Frankfurt kids listing pages — server-rendered, fetched directly every time
+// maxChars: generous but bounded so Claude API requests stay under ~200KB
 const LISTING_PAGES = [
-  { label: 'kindaling.de Frankfurt',      url: 'https://www.kindaling.de/veranstaltungen/frankfurt' },
-  { label: 'rheinmain4family Frankfurt',  url: 'https://www.rheinmain4family.de/events/selectedcity/frankfurt.html' },
-  { label: 'rheinmain4family general',    url: 'https://www.rheinmain4family.de/veranstaltungen/' },
-  { label: 'kinderfreizeit-frankfurt',    url: 'https://kinderfreizeit-frankfurt.de/' },
+  { label: 'kindaling.de Frankfurt',      url: 'https://www.kindaling.de/veranstaltungen/frankfurt',               maxChars: 30000 },
+  { label: 'rheinmain4family Frankfurt',  url: 'https://www.rheinmain4family.de/events/selectedcity/frankfurt.html', maxChars: 15000 },
+  { label: 'rheinmain4family general',    url: 'https://www.rheinmain4family.de/veranstaltungen/',                 maxChars: 10000 },
+  { label: 'kinderfreizeit-frankfurt',    url: 'https://kinderfreizeit-frankfurt.de/',                             maxChars: 8000  },
 ];
 
 function buildPrompt(context, dateRange, tomorrowStr, cutoffStr, sourceLabel) {
@@ -182,7 +185,7 @@ export default async function handler(req, res) {
 
     // Cache key includes version suffix — bump to v3 to bust old cached results
     const force = req.body && req.body.force === true;
-    const cacheKey = `fk_activities_${todayStr}_v3`;
+    const cacheKey = `fk_activities_${todayStr}_v4`;
     const cached = force ? null : await kvGet(cacheKey);
     if (cached) {
       try {
@@ -216,7 +219,7 @@ export default async function handler(req, res) {
 
       Promise.all(
         LISTING_PAGES.map(async p => {
-          const text = await fetchPageText(p.url, 12000); // no char limit
+          const text = await fetchPageText(p.url, 12000, p.maxChars);
           return text ? { label: p.label, url: p.url, text } : null;
         })
       ).then(r => r.filter(Boolean))
